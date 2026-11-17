@@ -55,14 +55,28 @@ export function createInput(canvas) {
   };
 }
 
-/** Fill the game's control state from the devices for this frame. */
-export function readControls(input, game, out) {
+/**
+ * Fill the game's control state from the devices for this frame. In the 3D view `view3d` supplies
+ * aim(sx, sy) (the mouse projected into the scene) and the camera heading, so walking is
+ * relative to where the camera looks.
+ */
+export function readControls(input, game, out, view3d = null) {
   const k = input.isDown;
   out.moveX = (k('KeyD') || k('ArrowRight') ? 1 : 0) - (k('KeyA') || k('ArrowLeft') ? 1 : 0);
   out.moveY = (k('KeyS') || k('ArrowDown') ? 1 : 0) - (k('KeyW') || k('ArrowUp') ? 1 : 0);
-  const aim = screenToWorld(game.camera, input.mouse.x, input.mouse.y);
+  const aim = view3d ? view3d.aim(input.mouse.x, input.mouse.y) : screenToWorld(game.camera, input.mouse.x, input.mouse.y);
   out.aimX = aim.x;
   out.aimY = aim.y;
+  out.aimLocked = !!aim.locked;
+  if (view3d && !game.player.vehicle) {
+    const yaw = view3d.yaw();
+    const fx = Math.cos(yaw);
+    const fy = Math.sin(yaw);
+    const ahead = -out.moveY;
+    const side = out.moveX;
+    out.moveX = fx * ahead - fy * side;
+    out.moveY = fy * ahead + fx * side;
+  }
   out.fire = input.mouse.down;
   out.firePressed = input.mouse.pressed;
   out.sprint = k('ShiftLeft') || k('ShiftRight');

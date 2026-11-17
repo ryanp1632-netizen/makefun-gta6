@@ -17,8 +17,9 @@ export function createGroundCache(city) {
   return { city, tex: makeTextures(), chunks: new Map(), tick: 0, skids: [] };
 }
 
-function terrainColor(city, x, y) {
-  const sdf = city.terrain.sdf(x, y);
+function terrainColor(city, x, y, landOnly = false) {
+  let sdf = city.terrain.sdf(x, y);
+  if (landOnly) sdf = Math.min(sdf, -1);
   if (sdf > 0) {
     const k = Math.pow(Math.min(1, sdf / 300), 0.55);
     const n = valueNoise(x / 70, y / 70, 77) * 12 - 6 + valueNoise(x / 19, y / 23, 78) * 6;
@@ -47,60 +48,96 @@ function terrainColor(city, x, y) {
   return [g[0] + n + m, g[1] + n + m * 1.2, g[2] + n + m * 0.5];
 }
 
-function buildTerrain(city, wx, wy, size) {
-  const n = Math.ceil(size / RES) + 2;
+/**
+ * The per-pixel terrain of a w x h world rectangle sampled every `res` units. With `alphaWater`
+ * (the 3D view) water becomes transparent past the shoreline and keeps the land colour, so the
+ * 3D water surface shows through.
+ */
+export function buildTerrain(city, wx, wy, w, h, res = RES, alphaWater = false) {
+  const nx = Math.ceil(w / res) + 2;
+  const ny = Math.ceil(h / res) + 2;
   const c = document.createElement('canvas');
-  c.width = n;
-  c.height = n;
+  c.width = nx;
+  c.height = ny;
   const ctx = c.getContext('2d');
-  const img = ctx.createImageData(n, n);
-  for (let j = 0; j < n; j += 1) {
-    for (let i = 0; i < n; i += 1) {
-      const col = terrainColor(city, wx + (i - 1) * RES, wy + (j - 1) * RES);
-      const k = (j * n + i) * 4;
+  const img = ctx.createImageData(nx, ny);
+  for (let j = 0; j < ny; j += 1) {
+    for (let i = 0; i < nx; i += 1) {
+      const x = wx + (i - 1) * res;
+      const y = wy + (j - 1) * res;
+      const k = (j * nx + i) * 4;
+      let col;
+      if (alphaWater) {
+        const sdf = city.terrain.sdf(x, y);
+        col = terrainColor(city, x, y, true);
+        img.data[k + 3] = sdf <= 0 ? 255 : Math.max(0, Math.round(255 * (1 - sdf / 9)));
+      } else {
+        col = terrainColor(city, x, y);
+        img.data[k + 3] = 255;
+      }
       img.data[k] = col[0];
       img.data[k + 1] = col[1];
       img.data[k + 2] = col[2];
-      img.data[k + 3] = 255;
     }
   }
   ctx.putImageData(img, 0, 0);
-  return { canvas: c, n };
+  return { canvas: c, nx, ny, res };
 }
 
 const overlaps = (o, x0, y0, x1, y1) => o.x1 >= x0 && o.x0 <= x1 && o.y1 >= y0 && o.y0 <= y1;
 
-function buildChunk(cache, cx, cy) {
+/**
+ * Paint the ground of the world rectangle (wx, wy, w x h) into `ctx` at `scale` pixels per unit:
+ * terrain, blocks, lots, piers, roads and markings. opts.alphaWater leaves open water
+ * transparent and skips the painted bridge and pier shadows (the 3D view draws real ones);
+ * opts.skids paints the remembered skid marks.
+ */
+export function paintGroundArea(ctx, cache, wx, wy, w, h, scale = 1, opts = {}) {
   const city = cache.city;
+  const alphaWater = !!opts.alphaWater;
+  const terrain = opts.terrain ?? buildTerrain(city, wx, wy, w, h, opts.res ?? RES, alphaWater);
+  const res = terrain.res;
+  ctx.save();
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  // opts.band = [worldY0, worldY1] paints only that horizontal band (work split over frames).
+  const band = opts.band ?? null;
+  if (band) {
+    ctx.beginPath();
+    ctx.rect(0, band[0] - wy, w, band[1] - band[0]);
+    ctx.clip();
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(terrain.canvas, 0.5, 0.5, terrain.nx - 1, terrain.ny - 1, -res * 0.5, -res * 0.5, (terrain.nx - 1) * res, (terrain.ny - 1) * res);
+  ctx.translate(-wx, -wy);
+  const t = cache.tex;
+  const pats = {};
+  for (const key of Object.keys(t)) pats[key] = ctx.createPattern(t[key], 'repeat');
+  const x0 = wx - 80;
+  const y0 = (band ? band[0] : wy) - 80;
+  const x1 = wx + w + 80;
+  const y1 = (band ? band[1] : wy + h) + 80;
+  for (const b of city.blocks) if (overlaps({ x0: b.x0 - SIDEWALK, y0: b.y0 - SIDEWALK, x1: b.x1 + SIDEWALK, y1: b.y1 + SIDEWALK }, x0, y0, x1, y1)) drawBlockBase(ctx, b, pats);
+  for (const lot of city.lots) if (overlaps(lot, x0, y0, x1, y1)) drawLot(ctx, lot, pats);
+  for (const p of city.piers) if (overlaps(p, x0, y0, x1, y1)) drawPier(ctx, p, pats, alphaWater);
+  for (const r of city.roads) if (overlaps({ x0: r.x0 - r.hw - 30, y0: r.y0 - r.hw - 30, x1: r.x1 + r.hw + 30, y1: r.y1 + r.hw + 30 }, x0, y0, x1, y1)) drawRoad(ctx, city, r, pats, alphaWater);
+  for (const e of city.edges) {
+    const minx = Math.min(e.mx - e.len / 2, e.mx + e.len / 2) - 70;
+    const miny = Math.min(e.my - e.len / 2, e.my + e.len / 2) - 70;
+    if (overlaps({ x0: minx, y0: miny, x1: minx + e.len + 140, y1: miny + e.len + 140 }, x0, y0, x1, y1)) drawMarkings(ctx, city, e);
+  }
+  if (opts.skids !== false) for (const s of cache.skids) if (s.x0 > x0 && s.x0 < x1 && s.y0 > y0 && s.y0 < y1) strokeSkid(ctx, s);
+  ctx.restore();
+}
+
+function buildChunk(cache, cx, cy) {
   const size = CHUNK + PAD * 2;
   const wx = cx * CHUNK - PAD;
   const wy = cy * CHUNK - PAD;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  const terrain = buildTerrain(city, wx, wy, size);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(terrain.canvas, 0.5, 0.5, terrain.n - 1, terrain.n - 1, -RES * 0.5, -RES * 0.5, (terrain.n - 1) * RES, (terrain.n - 1) * RES);
-  ctx.translate(-wx, -wy);
-  const t = cache.tex;
-  const pats = {};
-  for (const key of Object.keys(t)) pats[key] = ctx.createPattern(t[key], 'repeat');
-  const x0 = wx - 80;
-  const y0 = wy - 80;
-  const x1 = wx + size + 80;
-  const y1 = wy + size + 80;
-  for (const b of city.blocks) if (overlaps({ x0: b.x0 - SIDEWALK, y0: b.y0 - SIDEWALK, x1: b.x1 + SIDEWALK, y1: b.y1 + SIDEWALK }, x0, y0, x1, y1)) drawBlockBase(ctx, b, pats);
-  for (const lot of city.lots) if (overlaps(lot, x0, y0, x1, y1)) drawLot(ctx, lot, pats);
-  for (const p of city.piers) if (overlaps(p, x0, y0, x1, y1)) drawPier(ctx, p, pats);
-  for (const r of city.roads) if (overlaps({ x0: r.x0 - r.hw - 30, y0: r.y0 - r.hw - 30, x1: r.x1 + r.hw + 30, y1: r.y1 + r.hw + 30 }, x0, y0, x1, y1)) drawRoad(ctx, city, r, pats);
-  for (const e of city.edges) {
-    const minx = Math.min(e.mx - e.len / 2, e.mx + e.len / 2) - 70;
-    const miny = Math.min(e.my - e.len / 2, e.my + e.len / 2) - 70;
-    if (overlaps({ x0: minx, y0: miny, x1: minx + e.len + 140, y1: miny + e.len + 140 }, x0, y0, x1, y1)) drawMarkings(ctx, city, e);
-  }
-  for (const s of cache.skids) if (s.x0 > x0 && s.x0 < x1 && s.y0 > y0 && s.y0 < y1) strokeSkid(ctx, s);
+  paintGroundArea(canvas.getContext('2d'), cache, wx, wy, size, size, 1);
   return { canvas, wx, wy, used: cache.tick };
 }
 
@@ -339,9 +376,11 @@ function drawLot(ctx, lot, pats) {
   }
 }
 
-function drawPier(ctx, p, pats) {
-  ctx.fillStyle = 'rgba(0,40,60,0.3)';
-  ctx.fillRect(p.x0 + 6, p.y0 + 8, p.x1 - p.x0, p.y1 - p.y0);
+function drawPier(ctx, p, pats, alphaWater = false) {
+  if (!alphaWater) {
+    ctx.fillStyle = 'rgba(0,40,60,0.3)';
+    ctx.fillRect(p.x0 + 6, p.y0 + 8, p.x1 - p.x0, p.y1 - p.y0);
+  }
   ctx.fillStyle = pats.planks;
   ctx.fillRect(p.x0, p.y0, p.x1 - p.x0, p.y1 - p.y0);
   ctx.fillStyle = '#5b4632';
@@ -373,9 +412,9 @@ function spanRect(r, a, b) {
   return r.vertical ? { x: r.x0 - r.hw, y: r.y0 + a, w: r.hw * 2, h: b - a } : { x: r.x0 + a, y: r.y0 - r.hw, w: b - a, h: r.hw * 2 };
 }
 
-function drawRoad(ctx, city, r, pats) {
+function drawRoad(ctx, city, r, pats, alphaWater = false) {
   const spans = r.spans ?? (r.spans = bridgeSpans(city, r));
-  for (const [a, b] of spans) {
+  if (!alphaWater) for (const [a, b] of spans) {
     const s = spanRect(r, a, b);
     ctx.fillStyle = 'rgba(0,50,70,0.35)';
     ctx.fillRect(s.x + 16, s.y + 22, s.w, s.h);

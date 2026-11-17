@@ -1,7 +1,10 @@
-// The screens and what moves between them: title (over a demo drive through the city), play,
+// The screens and what moves between them: title (over a cinematic 3D orbit of the city), play,
 // pause, settings, controls, the city map, shop / safehouse / garage / property menus, the JOB
 // COMPLETE results and the hospital / precinct respawn. Each frame it reads input for the active
-// screen, steps the simulation when it should run, plays the sounds and draws the overlays.
+// screen, steps the simulation when it should run, plays the sounds, draws the world with the 3D
+// renderer (or the classic top-down one, toggled with V) and the HUD and menus over it.
+import { createRenderer3d, render3d, aimAt3d, cameraYaw, project3d, drawWorldLabels } from '../render3d/renderer3d.js';
+import { titleOrbit, TITLE_SKY } from '../render3d/chaseCamera.js';
 import { createGame, stepGame, STEP, CITY_SEED } from './game.js';
 import { createInput, readControls } from './input.js';
 import { createRenderer, renderWorld } from '../render/renderer.js';
@@ -32,7 +35,7 @@ export function fillStreets(game, x, y) {
 }
 
 function demoGame(seed) {
-  const game = createGame(seed, { hours: 18.35 });
+  const game = createGame(seed, { hours: 18.6 });
   const city = game.city;
   const e =city.edges.find((ed) => ed.road.kind === 'boulevard' && ed.len > 200 && city.nodes[ed.a].y > 900) ?? city.edges[0];
   const v = createVehicle('coupe', '#ff4f6a', 0, 0, 0);
@@ -65,14 +68,49 @@ export function newGame(seed, save, settings) {
   return game;
 }
 
-export function createApp(canvas) {
+/** The 3D renderer, or null (with the reason logged) when WebGL2 is not available. */
+function tryRenderer3d(canvas3d) {
+  if (!canvas3d) return null;
+  try {
+    return createRenderer3d(canvas3d);
+  } catch (e) {
+    console.warn('3D view unavailable, using the classic camera:', e);
+    return null;
+  }
+}
+
+/** Show the 3D canvas only while the 3D view is active. */
+function applyView(app) {
+  if (app.canvas3d) app.canvas3d.style.display = app.view === '3d' ? 'block' : 'none';
+  app.game.viewRadius = app.view === '3d' ? 1150 : undefined;
+  app.game.trafficWant = app.view === '3d' ? 28 : undefined;
+}
+
+/** V: switch between the 3D chase camera and the classic top-down view (remembered). */
+function toggleView(app) {
+  if (!app.r3) {
+    notify(app.game, '3D view needs WebGL2 - staying in the classic view', '#ff7a7a');
+    return;
+  }
+  app.view = app.view === '3d' ? 'classic' : '3d';
+  app.settings.view = app.view;
+  storeSettings(app.settings);
+  applyView(app);
+  uiBlip(app.audio);
+  notify(app.game, app.view === '3d' ? '3D chase camera' : 'Classic top-down view', '#5ad8ff');
+}
+
+export function createApp(canvas, canvas3d = null) {
   const settings = loadSettings();
   const save = readSave();
+  const r3 = tryRenderer3d(canvas3d);
   const app = {
-    canvas, renderer: createRenderer(canvas), input: createInput(canvas), audio: createAudio(), settings,
+    canvas, canvas3d, r3, view: r3 && settings.view !== 'classic' ? '3d' : 'classic',
+    renderer: createRenderer(canvas), input: createInput(canvas), audio: createAudio(), settings,
     screen: 'title', sel: save ? 0 : 1, prev: 'title', game: demoGame(CITY_SEED), save, acc: 0, t: 0, screenT: 0,
     menu: null, stationT: 0, bill: 0,
   };
+  applyView(app);
   const unlock = () => {
     unlockAudio(app.audio, app.settings);
     setVolumes(app.audio, app.settings);
@@ -80,6 +118,12 @@ export function createApp(canvas) {
   window.addEventListener('keydown', unlock);
   window.addEventListener('mousedown', unlock);
   return app;
+}
+
+function setGame(app, game) {
+  app.game = game;
+  if (app.r3) app.r3.cam.snapped = false;
+  applyView(app);
 }
 
 function go(app, screen) {
@@ -132,6 +176,7 @@ function respawn(app) {
   for (const p of game.peds) if (p.hostile && !p.mission) p.removed = true;
   game.vehicles = game.vehicles.filter((v) => v.ai !== 'police' && v.ai !== 'roadblock');
   snapCamera(game.camera, pl.x, pl.y, 1.15);
+  if (app.r3) app.r3.cam.snapped = false;
   fillStreets(game, pl.x, pl.y);
   game.clock.hours = (game.clock.hours + 6) % 24;
 }
@@ -228,6 +273,7 @@ function updatePlay(app, dt) {
     return;
   }
   if (inp.take('Enter')) skipLine(game);
+  if (inp.take('KeyV')) toggleView(app);
   if (pl.vehicle && !pl.dead) {
     if (inp.take('KeyQ')) {
       switchStation(app.audio, -1);
@@ -240,7 +286,8 @@ function updatePlay(app, dt) {
     }
   }
   const wasIn = !!pl.vehicle;
-  readControls(inp, game, game.controls);
+  const r3 = app.view === '3d' ? app.r3 : null;
+  readControls(inp, game, game.controls, r3 && r3.cam.snapped ? { aim: (sx, sy) => aimAt3d(r3, game, sx, sy), yaw: () => cameraYaw(r3) } : null);
   runSim(app, dt);
   if (!wasIn && pl.vehicle) app.stationT = 0;
   app.stationT += dt;
@@ -278,10 +325,10 @@ export function frameApp(app, dt) {
         const item = TITLE_ITEMS[app.sel];
         uiBlip(app.audio, 'ok');
         if (item === 'Continue' && app.save) {
-          app.game = newGame(CITY_SEED, app.save, app.settings);
+          setGame(app, newGame(CITY_SEED, app.save, app.settings));
           go(app, 'play');
         } else if (item === 'New Game') {
-          app.game = newGame(CITY_SEED, null, app.settings);
+          setGame(app, newGame(CITY_SEED, null, app.settings));
           go(app, 'play');
         } else if (item === 'Controls') app.sub = 'controls';
         else if (item === 'Settings') {
@@ -313,7 +360,7 @@ export function frameApp(app, dt) {
           abandonMission(game);
           go(app, 'play');
         } else if (item === 'Quit to Title') {
-          app.game = demoGame(CITY_SEED);
+          setGame(app, demoGame(CITY_SEED));
           app.save = readSave();
           go(app, 'title');
           app.sel = app.save ? 0 : 1;
@@ -359,8 +406,33 @@ export function frameApp(app, dt) {
   // Audio: the radio is the title music and plays in cars.
   app.audio.radioOn = app.screen === 'title' || (!!game.player.vehicle && !game.player.dead && app.screen !== 'down');
   updateLoops(app.audio, game, app.screen === 'play');
-  // Draw.
-  renderWorld(app.renderer, game, app.screen === 'play' || app.screen === 'title' ? 2 : 1);
+  // Draw: the 3D view on its own canvas with the HUD canvas cleared over it, or the classic view.
+  if (app.r3 && app.r3.lost) {
+    app.r3 = null;
+    app.view = 'classic';
+    applyView(app);
+    notify(game, '3D view lost its GPU context - switched to the classic view', '#ff7a7a');
+  }
+  let use3d = app.view === '3d' && !!app.r3;
+  if (use3d) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    {
+      const pl = game.player;
+      const view = app.screen === 'title' ? { mode: 'orbit', orbit: titleOrbit(), dt, sky: TITLE_SKY } : { dt, aim: pl.vehicle ? null : { x: game.controls.aimX, y: game.controls.aimY } };
+      try {
+        render3d(app.r3, game, w, h, view);
+        drawWorldLabels(ctx, app.r3);
+      } catch (e) {
+        console.error('3D view failed, switching to the classic camera:', e);
+        app.r3 = null;
+        app.view = 'classic';
+        applyView(app);
+        use3d = false;
+      }
+    }
+  }
+  if (!use3d) renderWorld(app.renderer, game, app.screen === 'play' || app.screen === 'title' ? 2 : 1);
   const station = currentStation(app.audio);
   if (app.screen === 'title') {
     drawTitle(ctx, w, h, { sel: app.sel, save: summarizeSave(app.save), t: app.t });
@@ -370,7 +442,7 @@ export function frameApp(app, dt) {
     return;
   }
   if (app.screen === 'map') {
-    drawCityMap(ctx, game, w, h);
+    drawCityMap(ctx, game, w, h, use3d);
     inp.flush();
     return;
   }
@@ -379,8 +451,10 @@ export function frameApp(app, dt) {
   if (game.missions.failed) drawFailed(ctx, w, h, game.missions.failed);
   if (app.screen === 'play' && !game.player.vehicle && !game.player.dead) {
     const pl = game.player;
-    const sp = worldToScreen(game.camera, game.controls.aimX, game.controls.aimY);
-    drawCrosshair(ctx, sp.x, sp.y, (WEAPONS[pl.weapon].spread * 60) + pl.speed / 30, pl.reloadT > 0);
+    const c = game.controls;
+    let sp = worldToScreen(game.camera, c.aimX, c.aimY);
+    if (use3d) sp = c.aimLocked ? project3d(app.r3, c.aimX, c.aimY, 12) : { x: inp.mouse.x, y: inp.mouse.y };
+    drawCrosshair(ctx, sp.x, sp.y, (WEAPONS[pl.weapon].spread * 60) + pl.speed / 30, pl.reloadT > 0, use3d && c.aimLocked);
   }
   if (app.screen === 'pause') drawPause(ctx, w, h, app.sel, game);
   else if (app.screen === 'settings') drawSettings(ctx, w, h, app.setSel ?? 0, app.settings);

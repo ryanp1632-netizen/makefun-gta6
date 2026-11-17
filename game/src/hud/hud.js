@@ -247,9 +247,16 @@ export function drawHud(ctx, game, w, h, radio) {
   drawDialogue(ctx, game, w, h);
 }
 
-/** The crosshair at the mouse when on foot. */
-export function drawCrosshair(ctx, x, y, spread, reloading) {
+/** The crosshair at the mouse when on foot (with a lock ring when aim assist holds a target). */
+export function drawCrosshair(ctx, x, y, spread, reloading, locked = false) {
   ctx.save();
+  if (locked) {
+    ctx.strokeStyle = 'rgba(255,90,100,0.95)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(x, y, 15 + spread, 0, Math.PI * 2);
+    ctx.stroke();
+  }
   ctx.strokeStyle = reloading ? ACCENT.sun : '#ffffff';
   ctx.lineWidth = 2;
   ctx.shadowColor = 'rgba(0,0,0,0.8)';

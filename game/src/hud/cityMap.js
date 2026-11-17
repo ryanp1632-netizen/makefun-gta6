@@ -43,12 +43,13 @@ export function drawChapterList(ctx, game, x, y, w, highlight = null) {
   });
 }
 
-export function drawCityMap(ctx, game, w, h) {
+/** The map screen; `translucent` lets the dimmed 3D city show through behind it. */
+export function drawCityMap(ctx, game, w, h, translucent = false) {
   const city = game.city;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   const bg = ctx.createLinearGradient(0, 0, 0, h);
-  bg.addColorStop(0, '#120c26');
-  bg.addColorStop(1, '#0a0716');
+  bg.addColorStop(0, translucent ? 'rgba(18,12,38,0.8)' : '#120c26');
+  bg.addColorStop(1, translucent ? 'rgba(10,7,22,0.9)' : '#0a0716');
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
   const leftW = 270;

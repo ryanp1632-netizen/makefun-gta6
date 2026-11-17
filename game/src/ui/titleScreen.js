@@ -97,9 +97,10 @@ export function drawLogo(ctx, cx, cy, scale, t) {
 export function drawTitle(ctx, w, h, state) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   const shade = ctx.createLinearGradient(0, 0, w, 0);
-  shade.addColorStop(0, 'rgba(14,8,30,0.88)');
-  shade.addColorStop(0.45, 'rgba(14,8,30,0.55)');
-  shade.addColorStop(1, 'rgba(14,8,30,0.1)');
+  shade.addColorStop(0, 'rgba(14,8,30,0.8)');
+  shade.addColorStop(0.42, 'rgba(14,8,30,0.4)');
+  shade.addColorStop(0.7, 'rgba(14,8,30,0.05)');
+  shade.addColorStop(1, 'rgba(14,8,30,0.12)');
   ctx.fillStyle = shade;
   ctx.fillRect(0, 0, w, h);
   drawLogo(ctx, 300, 205, 0.95, state.t);
@@ -128,11 +129,12 @@ export function drawTitle(ctx, w, h, state) {
   // How to play.
   const bx = w - 400;
   const by = 40;
-  panel(ctx, bx, by, 370, 300, ACCENT.teal, 0.8);
+  panel(ctx, bx, by, 370, 326, ACCENT.teal, 0.8);
   outlined(ctx, 'HOW TO PLAY', bx + 20, by + 34, ACCENT.teal, 18, 900, 'left', DISPLAY);
   const rows = [
     ['WASD', 'Walk / drive'], ['Mouse', 'Aim  ·  Click to shoot'], ['Shift', 'Sprint'], ['Space', 'Handbrake drift'],
     ['F', 'Enter / steal a vehicle'], ['E', 'Interact  ·  next station'], ['Q', 'Previous radio station'], ['R  1-4', 'Reload  ·  weapons'], ['M  Esc', 'City map  ·  pause'],
+    ['V', '3D chase / classic camera'],
   ];
   rows.forEach(([k, d], i) => {
     const y = by + 66 + i * 26;

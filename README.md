@@ -4,7 +4,7 @@
 [![rank](https://make.fun/badge/gta6-01/ryanp1632-netizen/makefun-gta6/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/ryanp1632-netizen/makefun-gta6/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-**HALCYON KEYS** is an original top-down open-world crime game set in a sun-soaked island city of causeways, marinas, pastel hotels and neon towers. Dez Calloway is back from three years upstate, and the Undertow crew owns everything his mentor Pearl built. Steal cars, drift through golden-hour traffic, shake five-star police pursuits, and take the Keys back across seven story jobs. Everything (the seeded city, the true 2.5D buildings, every vehicle and character, the music and the sound) is drawn and synthesized by code at runtime in plain Canvas 2D and WebAudio, with no assets, libraries or build step.
+**HALCYON KEYS** is an original 3D open-world crime game set in a sun-soaked island city of causeways, marinas, pastel hotels and neon towers. Dez Calloway is back from three years upstate, and the Undertow crew owns everything his mentor Pearl built. Steal cars, drift through golden-hour traffic behind a chase camera, shake five-star police pursuits under a searchlight helicopter, and take the Keys back across seven story jobs. Everything (the seeded city, every building, vehicle and character, the sky, the music and the sound) is built and synthesized by code at runtime with a WebGL2 renderer written from scratch, a Canvas 2D HUD and WebAudio: no assets, libraries or build step. The classic top-down view is one key (V) away.
 
 ## Run it
 
@@ -13,12 +13,15 @@ node serve.ts
 # then open http://localhost:8080 in desktop Chrome
 ```
 
+Checks: `node tools/simCheck.mjs` and `node tools/missionCheck.mjs` play the simulation headless, `node tools/perf3d.mjs` times the 3D renderer's per-frame JavaScript during a night police chase, `bash tools/check3d.sh` drives headless Chrome through the renderer check and the real app flow in both cameras, and `bash tools/shots.sh` re-renders the screenshots.
+
 ## Features
 
+- **A 3D renderer of its own**: WebGL2 written from scratch (no engine). The generated city is extruded into window-grid towers with crowns and spires, pastel hotels with neon trims, terracotta hip roofs, villas, warehouses and container stacks, with rooftop AC units, tanks, pools and helipads, neon signs, lit billboards and shopfront neon; palms with swaying fronds, street lamps, beach umbrellas and sunbathers, moored boats, piers, bridge rails, dock cranes and parked planes. Static geometry is merged into per-district chunks and frustum-culled; cars and people are frustum-culled, simplified with distance and batched into one buffer every frame; sharp ground textures are repainted in small steps as you drive; and the render resolution adapts to keep the frame rate up.
+- **Golden-hour light**: a sky gradient with a big low sun, a warm halo and clouds, distance fog tinted by the sky, a sun shadow map with soft filtering, glass that reflects the sunset, an animated sea with a glitter path and shore foam, HDR bloom and tone mapping. The day/night cycle moves the sun; at night lamps, neon, headlight beams, lit windows and police strobes light the wet streets through up to 32 dynamic lights.
+- **Cameras**: a chase camera that lags behind the car, swings out to show the flank in a drift and widens its field of view with speed; an over-the-shoulder camera on foot that turns with the mouse aim (cursor projected into the street, with a crosshair and aim assist); a cinematic orbit on the title screen; and the original top-down view on V.
 - **A generated island city**: a seeded avenue grid on four islands joined by causeway bridges, across nine districts with their own palettes and building styles: Neon Mile towers, Deco Row hotels, Old Mercado terracotta lanes, Palmetto Heights villas, Pelican Marina, Bayline Docks, Coral Strand beach, Keystone Field airstrip and Grieve Isle.
-- **True 2.5D look**: roofs lean away from the view centre with camera perspective, sun-shaded walls with floors of windows that light up at night, hip roofs, rooftop pools, helipads, billboards and neon signs, long soft sun shadows, animated surf, persistent skid marks.
-- **Day and night**: the game starts at golden hour; neon, street lamps, headlight cones, lit windows and red/blue strobes come up at dusk through a real light buffer.
-- **Driving**: arcade physics with grip, handbrake drifts, tyre smoke, collisions, damage, fire and explosions across eight code-drawn models, including a coupe, sedan, taxi, van, pickup, motorbike, muscle car and police cruiser.
+- **Driving**: arcade physics with grip, handbrake drifts, tyre smoke, skid marks, collisions, damage, fire and explosions across eight low-poly models that roll and pitch with the physics and steer their wheels: a coupe with a wing, sedan, taxi, van, pickup, motorbike, muscle car and a police cruiser with a flashing light bar that lights the road.
 - **A living street**: lane-following traffic that turns at junctions and brakes for obstacles; pedestrians who walk the sidewalks, cower and flee from gunfire.
 - **Heat**: 1 to 5 wanted stars from witnessed crimes, pursuing and ramming cruisers, officers on foot, roadblocks at 3 stars, a searchlight helicopter at 4. Lose them by leaving the search zone on the radar, or pay a Fresh Coat respray.
 - **Combat**: pistol, SMG, shotgun and rifle with ammo and reloads, health and armour, and enemies who use cover and shoot in bursts.
@@ -37,6 +40,9 @@ node serve.ts
 | F | enter or steal a vehicle | Q / E | radio station |
 | E | interact (shop, safehouse) | E at a marker | respray, race, taxi shift |
 | M / Esc | city map / pause | Enter | skip dialogue |
+| V | 3D chase camera / classic top-down view | V | 3D chase camera / classic top-down view |
+
+On foot in the 3D view, WASD moves relative to the camera and the camera turns toward where the mouse aims; push the cursor toward the screen edge to turn further. The 3D view needs WebGL2 (any current desktop browser); without it the game starts in the classic view.
 
 ---
 

@@ -1,8 +1,8 @@
-// Player settings (volumes, camera shake), remembered in localStorage.
+// Player settings (volumes, camera shake, 3D or classic camera), remembered in localStorage.
 
 const SETTINGS_KEY = 'halcyonKeys.settings.v1';
 
-export const DEFAULT_SETTINGS = { master: 0.8, music: 0.6, sfx: 0.8, shake: 1 };
+export const DEFAULT_SETTINGS = { master: 0.8, music: 0.6, sfx: 0.8, shake: 1, view: '3d' };
 
 export function loadSettings() {
   try {

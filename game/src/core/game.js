@@ -210,7 +210,7 @@ export function stepGame(game, dt) {
   if (game.populateT <= 0) {
     game.populateT = 0.25;
     const cam = game.camera;
-    const radius = Math.hypot(cam.w, cam.h) / 2 / cam.zoom;
+    const radius = game.viewRadius ?? Math.hypot(cam.w, cam.h) / 2 / cam.zoom;
     populateTraffic(game, focus.x, focus.y, radius, game.trafficWant ?? 22);
     populatePeds(game, focus.x, focus.y, radius, game.pedWant ?? 38);
   }

@@ -1,10 +1,18 @@
 // HALCYON KEYS, a gta6-01 entry (Node 22, standard library only). The game is game/: plain
 // static files a desktop browser loads offline (game/index.html and its ES modules under
-// game/src/, no library, no build, no network). It is an original top-down open-world crime game
-// set in a sun-soaked island city: a seeded city of causeways, beaches and neon with true 2.5D
-// buildings, a day/night cycle, traffic, pedestrians, five-star police with roadblocks and a
-// helicopter, gunplay, seven story jobs, side activities, synthesized radio and save games, all
-// drawn with Canvas 2D and voiced with WebAudio at runtime.
+// game/src/, no library, no build, no network). It is an original open-world crime game set in a
+// sun-soaked island city: a seeded city of causeways, beaches and neon, a day/night cycle,
+// traffic, pedestrians, five-star police with roadblocks and a helicopter, gunplay, seven story
+// jobs, side activities, synthesized radio and save games.
+//
+// It is drawn in 3D by its own WebGL2 renderer (game/src/render3d/, written from scratch): the
+// simulation's ground plane becomes the x/z plane under a chase camera that lags and swings out
+// in drifts, an over-the-shoulder camera on foot and a cinematic orbit on the title screen. The
+// city is extruded into per-district chunks of window-grid towers, hotels, palms, lamps and
+// boats; a golden-hour sky, sun shadow map, up to 32 dynamic lights (lamps, neon, headlights,
+// light bars, the searchlight), fog, an animated sea, billboard particles and HDR bloom finish
+// it. The classic top-down Canvas 2D view stays one key away (V), and the HUD and menus are a
+// Canvas 2D overlay; sound is WebAudio synthesized at runtime.
 //
 // This program hands it in: it copies game/ and screenshots/ from beside this file to /output and
 // writes /output/dossier.json, the summary the judge reads, with the vendored make.fun library.
@@ -21,13 +29,13 @@ import { buildDossier } from './vendor/makefun-game.ts';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-// Sanity check before handing anything in: the game's page and entry module must exist, and
-// screenshots/ must hold 3 or 4 JPEG/PNG images (nothing else), the cover sorting first.
+// Sanity check before handing anything in: the game's page, entry module and 3D renderer must
+// exist, and screenshots/ must hold 3 or 4 JPEG/PNG images (nothing else), the cover sorting first.
 function refuse(reason: string): never {
   process.stderr.write(`main.ts: refusing to hand in: ${reason}\n`);
   process.exit(1);
 }
-for (const required of ['game/index.html', 'game/src/main.js']) {
+for (const required of ['game/index.html', 'game/src/main.js', 'game/src/render3d/renderer3d.js', 'game/src/render3d/shaders.js']) {
   if (!existsSync(join(here, required)) || !statSync(join(here, required)).isFile()) refuse(`${required} is missing`);
 }
 const shotsDir = join(here, 'screenshots');
