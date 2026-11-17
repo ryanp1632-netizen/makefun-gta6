@@ -1,6 +1,7 @@
 // The game state and its fixed-step update: player, vehicles, pedestrians, police, missions and
 // effects advance in a set order every 1/60 s, then the step's events (shots, crashes, deaths)
 // are turned into consequences: crimes, panic, damage, camera shake, rewards.
+import { generateCity } from '../world/cityGenerator.js';
 import { createRandom } from './random.js';
 import { createMissionState, updateMissions } from '../missions/missionRunner.js';
 import { updateActivities } from '../missions/sideActivities.js';
@@ -14,7 +15,6 @@ import { damagePerson } from '../combat/weapons.js';
 import { createPlayer, updatePlayer } from '../player/playerController.js';
 import { collideVehicles, createVehicle, damageVehicle, resetVehicleIds, stepVehicle, vehicleSpeed } from '../vehicles/drivingPhysics.js';
 import { createEconomy, notify } from '../progression/economy.js';
-import { generateCity } from '../world/cityGenerator.js';
 import { districtIdAt } from '../world/districts.js';
 import { advanceClock, createClock, lightingAt } from '../world/dayNight.js';
 import { createCamera, snapCamera, updateCamera, addShake } from '../render/camera.js';

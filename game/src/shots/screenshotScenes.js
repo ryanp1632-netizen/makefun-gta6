@@ -12,12 +12,13 @@ import { drawCityMap } from '../hud/cityMap.js';
 import { drawTitle } from '../ui/titleScreen.js';
 import { drawResults } from '../ui/resultsScreen.js';
 import { createVehicle } from '../vehicles/drivingPhysics.js';
+import { emitTyreSmoke } from '../render/particles.js';
 import { setMinimumWanted } from '../police/wantedSystem.js';
 import { spawnHeli } from '../police/policeDispatch.js';
 import { beginMission, missionById } from '../missions/missionRunner.js';
 import { sayLines } from '../missions/dialogue.js';
 import { placeOnLane } from '../ai/trafficAI.js';
-import { STATIONS } from '../audio/radioStations.js';
+import { STATIONS, nowPlaying } from '../audio/radioStations.js';
 import { WEAPONS } from '../combat/weapons.js';
 import { createRenderer3d, render3d, project3d, drawWorldLabels } from '../render3d/renderer3d.js';
 import { titleOrbit, TITLE_SKY } from '../render3d/chaseCamera.js';
@@ -45,9 +46,18 @@ function giveProgress(game, completed, cash, xp) {
 const query = () => new URLSearchParams(window.location.search);
 const num = (k, d) => (query().has(k) ? Number(query().get(k)) : d);
 
+/** A direction toward the sky from a compass heading (degrees, 0 = north, 90 = east) and elevation. */
+function skyDir(headingDeg, elevDeg) {
+  const h = (headingDeg * Math.PI) / 180;
+  const e = (elevDeg * Math.PI) / 180;
+  return [Math.sin(h) * Math.cos(e), Math.sin(e), -Math.cos(h) * Math.cos(e)];
+}
+
 /**
- * Golden-hour getaway: drifting west off Deco Row onto the Halcyon Causeway, three cruisers on
- * the bumper and the chopper's searchlight on the car, the sun setting into the Neon Mile skyline.
+ * Golden-hour getaway up Strand Boulevard: the Vespera GT drifting north between Deco Row's
+ * hotels and the beach, cruisers ramming at its flank and pulling alongside, a roadblock waiting
+ * far ahead and the chopper's searchlight on the road, the sun sinking over the far end of the
+ * boulevard. Juno is on the radio.
  */
 function coverScene(seed) {
   const game = createGame(seed, { hours: num('hours', 18.86) });
@@ -56,12 +66,13 @@ function coverScene(seed) {
   const m = missionById('papermoon');
   beginMission(game, m, m.stages.findIndex((s) => s.type === 'escape'));
   game.notices.length = 0;
-  const ay = 2592;
-  const lane = ay - 44;
-  const startX = num('sx', 5150);
+  const bx = game.city.grid.bxs[2];
+  const lane = bx + num('lane', 16);
+  const startY = num('sy', 2330);
+  const heading = -Math.PI / 2;
   game.noCrimeT = 999;
-  const car = createVehicle('coupe', '#ff2f6d', startX, lane, Math.PI);
-  car.vx = -430;
+  const car = createVehicle('coupe', query().get('paint') ?? '#ff2f6d', lane, startY, heading);
+  car.vy = -430;
   car.driver = 'player';
   car.lightsOn = true;
   game.vehicles.push(car);
@@ -70,7 +81,7 @@ function coverScene(seed) {
   game.player.hp = 78;
   game.player.weapon = 'smg';
   setMinimumWanted(game, 4, car.x, car.y);
-  // The pursuit holds a staggered formation on the coupe's tail (scripted so the frame stays clean).
+  // The pursuit holds a formation on the coupe (scripted so the frame stays clean).
   const follow = (back, side) => (gm, v) => {
     const hv = Math.atan2(car.vy, car.vx);
     const ch = Math.cos(hv);
@@ -90,9 +101,9 @@ function coverScene(seed) {
     v.input.throttle = along > 8 ? 1 : sp > carSp + 20 ? -0.6 : 0.2;
     v.input.handbrake = false;
   };
-  const cruiser = (x, y, speed, back, side) => {
-    const c = createVehicle('police', '#f6f6f4', x, y, Math.PI);
-    c.vx = -speed;
+  const cruiser = (back, side) => {
+    const c = createVehicle('police', '#f6f6f4', lane + side, startY + back, heading);
+    c.vy = -430;
     c.ai = 'pursuit';
     c.drive = follow(back, side);
     c.siren = true;
@@ -102,81 +113,141 @@ function coverScene(seed) {
     game.vehicles.push(c);
     return c;
   };
-  for (const [b, s] of [[num('b1', 50), num('s1', -36)], [num('b2', 74), num('s2', 34)], [num('b3', 104), num('s3', -2)]]) {
-    cruiser(startX + b, lane - s, 430, b, s);
+  // One on the right flank ramming, one pulling alongside ahead on the left, one further up.
+  const units = [[num('b1', -16), num('s1', 36)], [num('b2', -64), num('s2', -30)], [num('b3', -180), num('s3', 26)]];
+  for (const [b, s] of units) cruiser(b, s);
+  // A roadblock across the boulevard far ahead.
+  const rbY = startY - num('rb', 1050);
+  for (const side of [-1, 1]) {
+    const v = createVehicle('police', '#f6f6f4', bx + side * 26, rbY, side * 0.3);
+    v.ai = 'roadblock';
+    v.siren = true;
+    v.lightsOn = true;
+    game.vehicles.push(v);
   }
   spawnHeli(game);
-  game.heli.x = startX - 150;
-  game.heli.y = ay - 150;
-  game.heli.angle = Math.PI * 0.85;
-  game.heli.lightX = startX;
-  game.heli.lightY = lane;
-  game.trafficWant = 30;
-  game.pedWant = 64;
-  fillStreets(game, startX - 300, ay);
-  // Autopilot: flat out west, then flick the tail out with the handbrake for a drift.
-  const driftAt = num('drift', 4700);
-  const hold = num('hold', 18);
+  game.trafficWant = 34;
+  game.pedWant = 80;
+  fillStreets(game, lane, startY - 500);
+  // Autopilot: flat out north holding the lane, then hold a power slide (body yawed off the line
+  // of travel) so the physics itself lays down tyre smoke and skid marks.
+  const driftAt = startY - num('drift', 520);
+  const slideSteps = num('slide', 18);
+  const yawOff = num('bodyYaw', 0.5);
+  const speed = num('speed', 430);
   let driftStart = -1;
-  for (let step = 0; step < 600; step += 1) {
+  for (let step = 0; step < 900; step += 1) {
+    const sliding = driftStart >= 0;
+    if (sliding) {
+      car.angle = heading + yawOff;
+      car.vx = (lane - car.x) * 2;
+      car.vy = -speed;
+    }
     run(game, 1, (gm) => {
       const c = gm.controls;
       c.moveY = -1;
-      c.aimX = car.x - 100;
-      c.aimY = car.y;
-      if (driftStart < 0) {
-        c.moveX = Math.max(-1, Math.min(1, (car.y - lane) * 0.05 + Math.sin(car.angle) * 2));
-        c.handbrake = false;
-        if (car.x < driftAt) driftStart = step;
-      } else {
-        c.moveX = num('steer', 1);
-        c.handbrake = step - driftStart < num('hb', 10);
-      }
+      c.aimX = car.x;
+      c.aimY = car.y - 100;
+      c.handbrake = false;
+      if (!sliding) {
+        let da = car.angle - heading;
+        while (da > Math.PI) da -= Math.PI * 2;
+        while (da < -Math.PI) da += Math.PI * 2;
+        c.moveX = Math.max(-1, Math.min(1, (lane - car.x) * 0.05 - da * 2.2));
+      } else c.moveX = num('steer', -0.7);
     });
-    if (driftStart >= 0 && step - driftStart >= hold) break;
+    if (!sliding && car.y < driftAt) driftStart = step;
+    if (sliding && step - driftStart >= slideSteps) break;
   }
-  game.district = 'deco';
-  game.districtT = 1.3;
+  game.district = 'strand';
+  game.districtT = 99;
   game.missions.timer = 127;
-  // The chopper hangs ahead of the car, its searchlight pinned on the coupe.
+  game.dialogue.queue.length = 0;
+  game.dialogue.current = null;
+  sayLines(game, [['juno', "Alarms are back! You've got the whole department coming - lose them!"]]);
+  run(game, 2);
+  game.dialogue.t = 3;
+  // The chopper hangs ahead of the car, its searchlight on the road just in front of the coupe.
   const hv = Math.atan2(car.vy, car.vx);
-  const ahead = num('ha', 330);
-  const right = num('hr', 70);
+  // Freeze on the slide: body yawed off the line of travel, still running straight up the lane.
+  car.angle = heading + yawOff;
+  car.vx = 0;
+  car.vy = -speed;
+  car.slip = -speed * Math.sin(yawOff);
+  // The slide's smoke billows off both rear tyres along the last few car lengths.
+  for (let i = 0; i < 7; i += 1) {
+    const back = 18 + i * 9;
+    for (const side of [-1, 1]) {
+      const wx = car.x - Math.cos(car.angle) * back - Math.sin(car.angle) * side * 8;
+      const wy = car.y - Math.sin(car.angle) * back + Math.cos(car.angle) * side * 8;
+      emitTyreSmoke(game.fx, game.rng, wx, wy, car.vx * 0.2, car.vy * 0.2);
+    }
+  }
+  const ahead = num('ha', 520);
+  const right = num('hr', -50);
   game.heli.x = car.x + Math.cos(hv) * ahead - Math.sin(hv) * right;
   game.heli.y = car.y + Math.sin(hv) * ahead + Math.cos(hv) * right;
-  game.heli.angle = hv + Math.PI - 0.5;
+  game.heli.angle = hv + Math.PI - 0.4;
   game.heli.vx = 0;
   game.heli.vy = 0;
-  game.heli.lightX = car.x + Math.cos(hv) * 6;
-  game.heli.lightY = car.y + Math.sin(hv) * 6;
+  game.heli.lit = true;
+  game.heli.lightX = car.x + Math.cos(hv) * num('la', 40);
+  game.heli.lightY = car.y + Math.sin(hv) * num('la', 40);
+  // Pinned by the searchlight and the cruisers: in sight, the zone follows the car.
+  game.wanted.seen = true;
+  game.wanted.evadeT = 0;
+  game.missions.progress = 'They can see you - break line of sight';
   // Keep civilian traffic from parking itself between the camera and the coupe.
-  game.vehicles = game.vehicles.filter((v) => v.ai !== 'traffic' || Math.hypot(v.x - car.x, v.y - car.y) > 110);
+  game.vehicles = game.vehicles.filter((v) => v.ai !== 'traffic' || Math.hypot(v.x - car.x, v.y - car.y) > 120);
+  const station = STATIONS[0];
   return {
     game,
-    view: { mode: 'chase', distK: num('distK', 1.95), heightK: num('heightK', 2.6), fov: num('fov', 62), lookUp: num('lookUp', 8), yawOffset: num('yawOff', -0.1), heliAlt: num('halt', 175) },
+    view: {
+      mode: 'chase', distK: num('distK', 1), heightK: num('heightK', 1), fov: num('fov', 64), lookUp: num('lookUp', 5), yawOffset: num('yawOff', 0), heliAlt: num('halt', 110),
+      sky: { sunDir: skyDir(num('sunH', -4), num('sunE', 6)), lightDir: skyDir(num('sunH', -4), num('sunE', 6)), fogK: num('fogK', 0.55), exposureK: num('expK', 1.05), bloomK: num('bloomK', 0.8) },
+      fill: { r: num('fillR', 75), k: num('fillK', 2.2), up: num('fillUp', 2), back: -num('fillF', 34) },
+    },
     overlay(ctx, w, h, r3) {
       drawWorldLabels(ctx, r3);
-      drawHud(ctx, game, w, h, { name: STATIONS[0].name, color: STATIONS[0].color });
+      drawHud(ctx, game, w, h, { name: station.name, color: station.color, track: nowPlaying(station, 0) });
     },
   };
 }
 
-/** The title screen over a slow cinematic orbit of the skyline at sunset. */
+/**
+ * The title screen: the Vespera GT pulled over on the Halcyon Causeway above the bay, a low
+ * camera beside the rail looking west, the sun going down behind the Neon Mile skyline.
+ */
 function titleScene(seed) {
   const game = createGame(seed, { hours: num('hours', 18.62) });
-  const city = game.city;
-  const e = city.edges.find((ed) => ed.road.kind === 'boulevard' && city.nodes[ed.a].y > 1500 && ed.len > 200) ?? city.edges[0];
-  const v = createVehicle('coupe', '#ff4f6a', 0, 0, 0);
-  placeOnLane(game, v, e, e.b, 0, 60);
-  v.ai = 'traffic';
-  v.driver = { team: 'civ' };
-  game.vehicles.push(v);
-  fillStreets(game, 5150, 2150);
+  const cx = num('cx', 4410);
+  const cy = 2592 - num('cyo', -46);
+  fillStreets(game, cx - 300, cy);
   run(game, 120);
+  // Clear the lane around the hero car and park it.
+  game.vehicles = game.vehicles.filter((v) => Math.hypot(v.x - cx, v.y - cy) > 140);
+  const v = createVehicle('coupe', '#ff2f6d', cx, cy, num('carYaw', 0.55));
+  v.ai = 'parked';
+  v.lightsOn = true;
+  v.driver = null;
+  game.vehicles.push(v);
+  for (const p of game.peds) if (Math.hypot(p.x - cx, p.y - cy) < 40) p.removed = true;
+  game.peds = game.peds.filter((p) => !p.removed);
+  run(game, 2);
   const save = 'Ch.5 Paper Moon  ·  $31,420  ·  Day 3, 18:40';
+  const orbit = { x: cx, y: cy, r: num('tr', 100), h: num('th', 24), a0: num('ta', -0.08), speed: 0, look: 900, lookH: num('tlh', 32), turn: num('turn', 0), fov: num('fov', 52) };
+  // Dez leans by the driver's door, facing the camera.
+  const pl = game.player;
+  const ex = cx + Math.cos(orbit.a0) * orbit.r;
+  const ey = cy + Math.sin(orbit.a0) * orbit.r;
+  pl.x = cx + num('dzx', 16);
+  pl.y = cy + num('dzy', -21);
+  pl.angle = Math.atan2(ey - pl.y, ex - pl.x) + num('dza', 0.5);
+  pl.speed = 0;
+  pl.weapon = 'none';
   return {
     game,
-    view: { mode: 'orbit', orbitT: 0, orbit: { ...titleOrbit(num('ta', 0), num('turn', -0.12)), h: num('th', 175), lookH: num('tlh', 100), r: num('tr', 820) }, sky: TITLE_SKY },
+    view: { mode: 'orbit', orbitT: 0, orbit, sky: { ...TITLE_SKY, fogK: num('fogK', 0.6) }, fill: { r: num('fillR', 90), k: num('fillK', 1.6), up: 6, back: -num('fillF', 50) } },
     overlay(ctx, w, h) {
       drawTitle(ctx, w, h, { sel: 0, save, t: 1.2 });
     },
@@ -209,41 +280,64 @@ function onFootScene(seed) {
   const b = club.building;
   const out = club.y < b.y0 ? [0, -1] : club.y > b.y1 ? [0, 1] : club.x < b.x0 ? [-1, 0] : [1, 0];
   const lat = [-out[1], out[0]];
-  const L = num('lat', 40);
-  pl.x = club.x + out[0] * num('pout', 92) + lat[0] * L;
-  pl.y = club.y + out[1] * num('pout', 92) + lat[1] * L;
+  const L = num('lat', 84);
+  pl.x = club.x + out[0] * num('pout', 46) + lat[0] * L;
+  pl.y = club.y + out[1] * num('pout', 46) + lat[1] * L;
   const crew = game.missions.groups.crew ?? [];
-  const spots = [[16, -64], [30, -22], [12, 18], [36, 52], [20, 90], [44, -100]];
+  // The crew fans out along the club's sidewalk behind a line of parked cars.
+  const spots = [[num('c0o', 6), num('c0l', 14)], [num('c1o', 22), num('c1l', -22)], [num('c2o', 6), num('c2l', -52)], [num('c3o', 44), num('c3l', -74)], [12, -110], [30, -140]];
   crew.forEach((p, i) => {
     const [o, l] = spots[i % spots.length];
     p.x = club.x + out[0] * o + lat[0] * l;
     p.y = club.y + out[1] * o + lat[1] * l;
+    p.angle = Math.atan2(pl.y - p.y, pl.x - p.x);
   });
+  const along = Math.atan2(lat[1], lat[0]);
+  for (const [l, o, model, paint] of [[num('car0', -8), 30, 'sedan', '#2f6fdf'], [num('car1', 36), 26, 'muscle', '#8a4fd8'], [num('car2', -62), 52, 'van', '#e9d8b8']]) {
+    const v = createVehicle(model, paint, club.x + out[0] * o + lat[0] * l, club.y + out[1] * o + lat[1] * l, along + num('carA', 0.25));
+    v.ai = 'parked';
+    game.vehicles.push(v);
+  }
   fillStreets(game, pl.x, pl.y);
+  // Keep bystanders and traffic out of the line of fire.
+  game.vehicles = game.vehicles.filter((v) => v.ai !== 'traffic' || Math.hypot(v.x - pl.x, v.y - pl.y) > 260);
+  for (const p of game.peds) if (!p.hostile && Math.hypot(p.x - pl.x, p.y - pl.y) < 200) p.removed = true;
+  game.peds = game.peds.filter((p) => !p.removed);
   let target = null;
-  // Shoot at whoever stands closest to straight ahead (toward the club).
-  const ahead = Math.atan2(club.y - pl.y, club.x - pl.x);
+  // Shoot at whoever stands closest to the middle of the crew (straight down the street).
+  const cx0 = crew.reduce((s, p) => s + p.x, 0) / Math.max(1, crew.length);
+  const cy0 = crew.reduce((s, p) => s + p.y, 0) / Math.max(1, crew.length);
+  const ahead = Math.atan2(cy0 - pl.y, cx0 - pl.x) + num('aimBias', 0);
   const off = (p) => Math.abs(Math.atan2(Math.sin(Math.atan2(p.y - pl.y, p.x - pl.x) - ahead), Math.cos(Math.atan2(p.y - pl.y, p.x - pl.x) - ahead)));
+  const burst = [num('burst0', 70), num('burst1', 82)];
   const pilot = (gm, i) => {
     const c = gm.controls;
     if (!target || target.dead) target = gm.peds.filter((p) => p.hostile && !p.dead && p.team === 'gang').sort((a, b) => off(a) - off(b))[0];
-    c.moveX = Math.sin(i / 30) * 0.5;
-    c.moveY = 0.25;
+    c.moveX = 0;
+    c.moveY = 0;
     if (target) {
       c.aimX = target.x;
       c.aimY = target.y;
     }
-    c.fire = i > 20;
-    c.firePressed = i === 21;
-    pl.hp = Math.max(pl.hp, 55);
+    c.fire = i >= burst[0] && i < burst[1];
+    c.firePressed = i === burst[0];
+    pl.hp = Math.max(pl.hp, 62);
+    pl.armor = Math.max(pl.armor, 48);
   };
-  run(game, num('steps', 60), pilot);
-  // Stop on a frame where the player's SMG has just fired.
-  for (let i = 0; i < 40; i += 1) {
-    run(game, 1, (gm) => pilot(gm, 120 + i));
-    if (pl.fireT > WEAPONS.smg.rate - 0.02 && game.fx.list.some((p) => p.kind === 4 && Math.hypot(p.x - pl.x, p.y - pl.y) < 30)) break;
+  run(game, burst[0], pilot);
+  // Stop on a frame where Dez's SMG and at least two of the crew have just fired.
+  const flashesNear = (list, r) => game.fx.list.filter((p) => p.kind === 4 && list.some((q) => Math.hypot(p.x - q.x, p.y - q.y) < r)).length;
+  let best = -1;
+  let i = burst[0];
+  for (; i < burst[0] + 160; i += 1) {
+    run(game, 1, (gm) => pilot(gm, i));
+    const mine = flashesNear([pl], 30);
+    const theirs = flashesNear(crew.filter((p) => !p.dead), 30);
+    const score = (mine > 0 ? 2 : 0) + theirs;
+    if (score > best) best = score;
+    if (mine > 0 && theirs >= num('need', 2)) break;
   }
-  game.dialogue.t = 1.4;
+  game.dialogue.t = 3;
   game.districtT = 99;
   pl.hurtT = 0;
   const aim = { x: game.controls.aimX, y: game.controls.aimY };
@@ -252,12 +346,12 @@ function onFootScene(seed) {
   const look = alive.length ? { x: alive.reduce((s, p) => s + p.x, 0) / alive.length, y: alive.reduce((s, p) => s + p.y, 0) / alive.length } : aim;
   return {
     game,
-    view: { mode: 'foot', aim: look, yawOffset: num('yawOff', 0.06), distK: num('distK', 1.1), heightK: num('heightK', 1.05), sideK: num('sideK', 1), fov: num('fov', 64) },
+    view: { mode: 'foot', aim: look, yawOffset: num('yawOff', 0.04), distK: num('distK', 0.74), heightK: num('heightK', 0.92), sideK: num('sideK', 1.05), fov: num('fov', 62), lookUp: num('lookUp', 0) },
     overlay(ctx, w, h, r3) {
       drawWorldLabels(ctx, r3);
       drawHud(ctx, game, w, h, null);
-      const sp = project3d(r3, aim.x, aim.y, 12);
-      drawCrosshair(ctx, sp.x, sp.y, WEAPONS.smg.spread * 60, false);
+      const sp = project3d(r3, aim.x, aim.y, 13);
+      drawCrosshair(ctx, sp.x, sp.y, WEAPONS.smg.spread * 60, false, true);
     },
   };
 }
@@ -268,8 +362,14 @@ function mapScene(seed) {
   giveProgress(game, ['lowtide', 'coldcargo', 'undertow', 'bluelights'], 41250, 2600);
   game.economy.tapes = [0, 2, 3, 7, 9, 12, 15];
   game.economy.properties.penthouse = true;
-  game.notices.length = 0;
+  // Paper Moon is under way: Dez is out on Coral Strand and the GPS leads to Halcyon Trust.
+  const m = missionById('papermoon');
+  beginMission(game, m, m.stages.findIndex((s) => s.type === 'goto'));
+  game.player.x = game.city.grid.bxs[2] + 40;
+  game.player.y = num('py', 1700);
+  game.player.angle = Math.PI / 2;
   run(game, 30);
+  game.notices.length = 0;
   return {
     game,
     view: { mode: 'orbit', orbitT: 0, orbit: titleOrbit(0.2) },

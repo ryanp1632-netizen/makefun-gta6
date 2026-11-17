@@ -6,7 +6,7 @@
 // ground textures and the sign atlas are built once per city seed and reused across games.
 import { LIT_VS, LIT_FS, GROUND_VS, GROUND_FS, WATER_VS, WATER_FS, SKY_VS, SKY_FS, FX_VS, FX_FS, DEPTH_VS, DEPTH_FS, POST_VS, BRIGHT_FS, DOWN_FS, UP_FS, COMPOSITE_FS } from './shaders.js';
 import { skyState, applySkyUniforms } from './skyAndSun.js';
-import { createCam3d, updateCam3d, cam3dMatrices, worldToScreen3d, screenToPlane } from './chaseCamera.js';
+import { createCam3d, updateCam3d, cam3dMatrices, worldToScreen3d, screenToPlane, NEAR_FADE } from './chaseCamera.js';
 import { buildCityMeshes } from './cityMeshes.js';
 import { createLightSet, gatherLights } from './lighting.js';
 import { buildEffects } from './effects3d.js';
@@ -63,6 +63,7 @@ function buildWorld(r, game) {
   const atlas = createTextAtlas();
   atlasEntry(atlas, 'H');
   atlasEntry(atlas, 'HKPD');
+  atlasEntry(atlas, 'KEYCAB');
   // The ground first: painting it finds where each road crosses water, which the bridges need.
   const gt = createGroundTextures(gl, game.ground ?? createGroundCache(city), city);
   const city3d = buildCityMeshes(gl, city, atlas);
@@ -96,6 +97,7 @@ function setCommon(r, prog, sky, viewProj, time, withLights = true) {
   gl.useProgram(prog.prog);
   gl.uniformMatrix4fv(u.u_viewProj, false, viewProj);
   applySkyUniforms(gl, u, sky, r.cam.pos, time);
+  if (u.u_nearFade) gl.uniform1f(u.u_nearFade, r.nearFade ?? NEAR_FADE);
   if (withLights && u.u_lPos) {
     gl.uniform4fv(u.u_lPos, r.lights.pos);
     gl.uniform4fv(u.u_lCol, r.lights.col);
@@ -133,11 +135,13 @@ function sphereVisible(planes, x, y, z, rad) {
 export function buildFrameGeometry(state, game, cam, planes, o) {
   const { night, dt, t, atlas, city3d, sky } = o;
   const dmb = state.dynMB.reset();
+  // Vehicle glass goes first into the effects buffer, so smoke and light draw over it.
+  const fmb = state.fxMB.reset();
   const near = (x, z) => Math.hypot(x - cam.x, z - cam.z);
   for (const v of game.vehicles) {
     const d = near(v.x, v.y);
     if (d > 2600 || !sphereVisible(planes, v.x, 8, v.y, 34)) continue;
-    appendVehicle(dmb, v, t, night, atlas, dt, d > 650 ? 1 : 0);
+    appendVehicle(dmb, v, t, night, atlas, dt, d > 720 ? 2 : d > 300 ? 1 : 0, fmb);
   }
   pruneVehicleMotion(game.vehicles);
   for (const p of game.peds) {
@@ -167,9 +171,8 @@ export function buildFrameGeometry(state, game, cam, planes, o) {
     dmb.xform(null);
   }
   const markers = collectMarkers(game);
-  const fmb = state.fxMB.reset();
-  buildEffects(fmb, { game, cam, night, markers, heliPose, lamps: city3d.lamps, tapes });
-  gatherLights(state.lights, { game, sky, city3d, markers, heliPose }, { x: cam.tx, z: cam.tz });
+  buildEffects(fmb,{ game, cam, night, markers, heliPose, lamps: city3d.lamps, tapes });
+  gatherLights(state.lights, { game, sky, city3d, markers, heliPose, extra: o.extraLights }, { x: cam.tx, z: cam.tz });
   return { dmb, fmb, heliPose, markers, tapes };
 }
 
@@ -217,6 +220,7 @@ export function render3d(r, game, w, h, viewIn = {}) {
   const night = sky.night;
   updateCam3d(r.cam, game, view, dt);
   cam3dMatrices(r.cam, w, h);
+  r.nearFade = view.nearFade ?? NEAR_FADE;
   const cam = r.cam;
   const city3d = world.city3d;
   // Sharp ground textures under and ahead of the camera.
@@ -233,7 +237,14 @@ export function render3d(r, game, w, h, viewIn = {}) {
   }
   // Moving geometry, effects and lights (jsMs times this pure JavaScript work).
   const tj = performance.now();
-  const frameGeo = buildFrameGeometry(r, game, cam, frustumPlanes(cam.viewProj), { night, dt, t, atlas: world.atlas, city3d, sky, heliAlt: view.heliAlt, snap: view.snap });
+  // view.fill = { r, k, color, up, back }: a soft light riding behind the camera.
+  const extraLights = [];
+  if (view.fill) {
+    const f = view.fill;
+    const c = f.color ?? [1, 0.82, 0.62];
+    extraLights.push({ x: cam.x - cam.fwd[0] * (f.back ?? 0), y: cam.y + (f.up ?? 6), z: cam.z - cam.fwd[2] * (f.back ?? 0), r: f.r ?? 220, cr: c[0] * f.k, cg: c[1] * f.k, cb: c[2] * f.k });
+  }
+  const frameGeo = buildFrameGeometry(r, game, cam, frustumPlanes(cam.viewProj), { night, dt, t, atlas: world.atlas, city3d, sky, heliAlt: view.heliAlt, snap: view.snap, extraLights });
   const { dmb, fmb, heliPose, markers } = frameGeo;
   const jsMs = performance.now() - tj;
   uploadDynamic(gl, r.dyn, dmb);

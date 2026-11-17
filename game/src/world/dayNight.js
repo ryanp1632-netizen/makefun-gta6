@@ -17,11 +17,7 @@ export function advanceClock(clock, dt) {
   }
 }
 
-export function formatClock(clock) {
-  const h = Math.floor(clock.hours);
-  const m = Math.floor((clock.hours - h) * 60);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-}
+export { formatClock } from '../core/math.js';
 
 // Ambient multiplier, warmth (golden grade) and night (lights on) through the day.
 const KEYS = [

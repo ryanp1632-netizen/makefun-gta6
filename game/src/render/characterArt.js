@@ -70,7 +70,7 @@ export function drawPerson(ctx, p, light, t) {
   ctx.ellipse(swing * s, -2.6 * s, 3 * s, 2 * s, 0, 0, Math.PI * 2);
   ctx.ellipse(-swing * s, 2.6 * s, 3 * s, 2 * s, 0, 0, Math.PI * 2);
   ctx.fill();
-  const armed = p.weapon && p.weapon !== 'none';
+  const armed = p.weapon && p.weapon !== 'none' && p.weapon !== 'fists';
   ctx.fillStyle = look.skin;
   if (armed) {
     ctx.beginPath();

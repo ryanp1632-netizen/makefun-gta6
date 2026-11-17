@@ -431,6 +431,27 @@ export function updateMissions(game, dt) {
   }
 }
 
+/** Stage types the player acts on (the rest are scripting: talk, spawns, heat switches). */
+const PLAYER_STAGES = new Set(['enter', 'goto', 'kill', 'hold', 'escape', 'chase', 'race']);
+
+/**
+ * Where the active job stands for the HUD: { stage, total, next } where stage is 1-based over
+ * the player-facing stages and next is the objective after this one (or the payout).
+ */
+export function stageProgress(game) {
+  const s = game.missions;
+  const m = s.active;
+  if (!m) return null;
+  const facing = [];
+  m.stages.forEach((st, i) => {
+    if (PLAYER_STAGES.has(st.type)) facing.push(i);
+  });
+  let pos = facing.findIndex((i) => i >= s.stage);
+  if (pos < 0) pos = facing.length - 1;
+  const after = facing[pos + 1];
+  return { stage: pos + 1, total: facing.length, next: after !== undefined ? m.stages[after].text : `Collect $${m.payout.toLocaleString('en-US')} from ${m.giver[0].toUpperCase()}${m.giver.slice(1)}` };
+}
+
 /** Markers for the renderer and the minimap: contacts, targets, checkpoints. */
 export function missionMarkers(game) {
   const s = game.missions;

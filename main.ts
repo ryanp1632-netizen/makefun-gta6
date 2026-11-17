@@ -5,14 +5,19 @@
 // traffic, pedestrians, five-star police with roadblocks and a helicopter, gunplay, seven story
 // jobs, side activities, synthesized radio and save games.
 //
-// It is drawn in 3D by its own WebGL2 renderer (game/src/render3d/, written from scratch): the
-// simulation's ground plane becomes the x/z plane under a chase camera that lags and swings out
-// in drifts, an over-the-shoulder camera on foot and a cinematic orbit on the title screen. The
-// city is extruded into per-district chunks of window-grid towers, hotels, palms, lamps and
-// boats; a golden-hour sky, sun shadow map, up to 32 dynamic lights (lamps, neon, headlights,
-// light bars, the searchlight), fog, an animated sea, billboard particles and HDR bloom finish
-// it. The classic top-down Canvas 2D view stays one key away (V), and the HUD and menus are a
-// Canvas 2D overlay; sound is WebAudio synthesized at runtime.
+// It is drawn in 3D by its own WebGL2 renderer (game/src/render3d/, written from scratch). This
+// version is the polish pass: a low chase camera riding just above the roof (lagging, widening
+// with speed, swinging out in drifts, dissolving anything that comes within a few metres of the
+// lens) and a closer over-the-shoulder camera; low-poly cars with real wheel arches, spoked wheels
+// that spin and steer, see-through glass with drivers at the wheel, glowing lamps, the coupe's
+// wing, the HKPD livery and light bar and the KeyCab roof sign; people with knees, elbows, hair
+// and outfits; streets dressed with traffic signals, bus shelters, benches, roadside billboards
+// and beach kiosks of invented brands. The Canvas 2D HUD now carries a story panel with stage
+// progress and the next step, an HKPD response list (call signs, distance, RAMMING / ROADBLOCK /
+// SPOTLIGHT...), a weapon slot bar (fists to rifle), health, armour and respect bars, a big
+// speed readout with vehicle condition, the radio station and track, a GPS route on the radar
+// and city map, and the dialogue box with the speaker's portrait. The classic top-down view
+// stays one key away (V); sound is WebAudio synthesized at runtime.
 //
 // This program hands it in: it copies game/ and screenshots/ from beside this file to /output and
 // writes /output/dossier.json, the summary the judge reads, with the vendored make.fun library.
@@ -35,7 +40,7 @@ function refuse(reason: string): never {
   process.stderr.write(`main.ts: refusing to hand in: ${reason}\n`);
   process.exit(1);
 }
-for (const required of ['game/index.html', 'game/src/main.js', 'game/src/render3d/renderer3d.js', 'game/src/render3d/shaders.js']) {
+for (const required of ['game/index.html', 'game/src/main.js', 'game/src/render3d/renderer3d.js', 'game/src/render3d/shaders.js', 'game/src/hud/hud.js', 'game/src/world/streetFurniture.js']) {
   if (!existsSync(join(here, required)) || !statSync(join(here, required)).isFile()) refuse(`${required} is missing`);
 }
 const shotsDir = join(here, 'screenshots');

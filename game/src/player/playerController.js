@@ -3,7 +3,7 @@
 // drive-by shooting from the window.
 import { clamp } from '../core/math.js';
 import { isWater, pushOutOfBuildings } from '../world/collision.js';
-import { fireShot, startReload, tryFire, WEAPON_ORDER } from '../combat/weapons.js';
+import { fireShot, startReload, tryFire, WEAPON_ORDER, WEAPONS } from '../combat/weapons.js';
 import { createPed } from '../ai/pedestrianAI.js';
 import { LOOKS, randomLook } from '../render/characterArt.js';
 import { vehicleSpeed } from '../vehicles/drivingPhysics.js';
@@ -12,7 +12,7 @@ import { reportCrime } from '../police/wantedSystem.js';
 export function createPlayer(x, y) {
   return {
     x, y, vx: 0, vy: 0, angle: 0, speed: 0, walkPhase: 0, hp: 100, armor: 0, dead: false, vehicle: null, team: 'player',
-    look: LOOKS.player, weapon: 'pistol', owned: { pistol: true, smg: false, shotgun: false, rifle: false },
+    look: LOOKS.player, weapon: 'pistol', owned: { fists: true, pistol: true, smg: false, shotgun: false, rifle: false },
     ammo: { pistol: { mag: 12, reserve: 60 }, smg: { mag: 0, reserve: 0 }, shotgun: { mag: 0, reserve: 0 }, rifle: { mag: 0, reserve: 0 } },
     fireT: 0, reloadT: 0, hurtT: 0, invulnT: 0, stamina: 1, enterT: 0,
   };
@@ -58,7 +58,7 @@ export function enterVehicle(game, v) {
   v.vy *= 0.3;
   pl.vehicle = v;
   pl.reloadT = 0;
-  if (pl.weapon === 'shotgun' || pl.weapon === 'rifle') pl.weapon = pl.owned.smg ? 'smg' : 'pistol';
+  if (pl.weapon === 'shotgun' || pl.weapon === 'rifle' || pl.weapon === 'fists') pl.weapon = pl.owned.smg ? 'smg' : 'pistol';
   game.events.push({ type: 'enterVehicle', vehicle: v });
 }
 
@@ -97,8 +97,9 @@ export function exitVehicle(game) {
 
 function switchWeapon(pl, dir, slot) {
   if (slot) {
-    const id = WEAPON_ORDER[slot - 1];
-    if (id && pl.owned[id]) pl.weapon = id;
+    // Number keys pick a weapon slot (1-4); the fists key passes the id itself.
+    const id = typeof slot === 'string' ? slot : WEAPON_ORDER.find((k) => WEAPONS[k].slot === slot);
+    if (id && pl.owned[id] && (!pl.vehicle || id === 'pistol' || id === 'smg')) pl.weapon = id;
     return;
   }
   let i = WEAPON_ORDER.indexOf(pl.weapon);

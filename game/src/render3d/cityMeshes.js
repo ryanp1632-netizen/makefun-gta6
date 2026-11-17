@@ -162,6 +162,7 @@ function standingPanel(mb, atlas, R, H, edge, text, color, kind, lights) {
   const BL = [cx - f.rx * hw, y0, cz - f.rz * hw];
   mb.color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255).mat(MAT.SIGN, kind);
   if (kind) {
+    mb.color(1, 1, 1);
     const i0 = mb.vcount;
     mb.color2(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
     mb.vert(TL[0], TL[1], TL[2], f.nx, 0, f.nz, e.u0, e.v0);
@@ -181,7 +182,7 @@ function standingPanel(mb, atlas, R, H, edge, text, color, kind, lights) {
   lights.push({ x: cx + f.nx * 26, y: (y0 + y1) / 2, z: cz + f.nz * 26, color: rgb, r: kind ? 150 : 190, k: kind ? 0.7 : 1 });
 }
 
-const STREET_SIGNS = ['BAR', 'OPEN 24H', 'TACOS', 'LIQUOR', 'PIZZA', 'KARAOKE', 'ARCADE', 'NOODLES', 'TATTOO', 'MOTEL', 'DINER', 'PAWN', 'LOUNGE', 'SUSHI', 'VIDEO', 'BODEGA', 'CAFE', 'DANCE'];
+const STREET_SIGNS = ['BAR TROPICO', 'TACO TIDE', 'LIQUOR LUX', 'PIZZA PALMA', 'KARAOKE KAT', 'ARCADIA', 'NOODLE BAY', 'INK & ANCHOR', 'MOTEL AZUL', 'DINER 24', 'LUCKY PAWN', 'LOUNGE 77', 'SUSHI WAVE', 'VIDEO VAULT', 'BODEGA SOL', 'CAFE ORO', 'DANCE HALL 9', 'HALO JUICE'];
 const STREET_NEON = ['#ff4fd8', '#3ee6ff', '#ffe14f', '#7dff6a', '#ff6a4f', '#b26bff', '#ff8fd0'];
 
 /** A neon sign over the shopfronts, between the ground floor and the first floor. */
@@ -744,6 +745,169 @@ function marketStalls(mb, lot) {
   }
 }
 
+/** Lettering colour for a printed board: deep ink on light brand colours, white on dark ones. */
+function inkFor(rgb) {
+  const lum = (rgb[0] * 0.3 + rgb[1] * 0.55 + rgb[2] * 0.15) / 255;
+  return lum > 0.62 ? [0.1, 0.06, 0.16] : [1, 1, 1];
+}
+
+/** A traffic signal: pole, mast arm over the road, two three-lamp heads facing the traffic. */
+function signal(mb, s) {
+  const H = 34;
+  mb.color(0.2, 0.21, 0.23).mat(MAT.METAL);
+  mb.box(s.x - 1.6, 0, s.y - 1.6, s.x + 1.6, 2.4, s.y + 1.6);
+  mb.tube(s.x, 0, s.y, s.x, H, s.y, 1.0, 0.85, 6, true);
+  const ex = s.x + s.ax * s.len;
+  const ey = s.y + s.ay * s.len;
+  mb.tube(s.x, H - 2, s.y, ex, H - 1.2, ey, 0.6, 0.45, 5, true);
+  for (const k of [0.55, 0.95]) {
+    const hx = s.x + s.ax * s.len * k;
+    const hy = s.y + s.ay * s.len * k;
+    mb.xform(frame(hx, 0, hy, s.face));
+    mb.color(0.12, 0.12, 0.1).mat(MAT.PLAIN);
+    mb.box(-1.2, H - 10.2, -1.5, 1.2, H - 1.6, 1.5, '');
+    mb.color(0.05, 0.05, 0.05);
+    mb.box(1.2, H - 10.8, -2.4, 1.5, H - 1.0, 2.4, '');
+    const lamps = [[H - 3.4, [1, 0.12, 0.08], !s.green], [H - 6, [1, 0.62, 0.08], false], [H - 8.6, [0.2, 1, 0.45], s.green]];
+    for (const [y, c, on] of lamps) {
+      mb.color(c[0], c[1], c[2]).color2(c[0] * 0.25, c[1] * 0.25, c[2] * 0.25).mat(MAT.EMIT, on ? 230 : 8, 0);
+      mb.box(1.5, y - 1.0, -1.0, 1.8, y + 1.0, 1.0, '');
+    }
+    mb.xform(null);
+  }
+}
+
+/** A bus shelter: posts, a slab roof, a glass back, a bench and a lit advert at one end. */
+function shelter(mb, atlas, s, lights) {
+  mb.xform(frame(s.x, 0, s.y, s.angle));
+  mb.color(0.62, 0.64, 0.68).mat(MAT.METAL);
+  for (const [x, z] of [[-5, -17], [-5, 17], [4, -17], [4, 17]]) mb.box(x - 0.6, 0, z - 0.6, x + 0.6, 19, z + 0.6);
+  mb.color(0.92, 0.92, 0.9).mat(MAT.PLAIN);
+  mb.box(-6.5, 19, -18.5, 6, 20.6, 18.5, '');
+  mb.color(...hexRgb(s.color).map((v) => v / 255)).mat(MAT.PLAIN);
+  mb.box(5.9, 19.2, -18.5, 6.2, 20.4, 18.5, '');
+  mb.color(0.35, 0.5, 0.58).mat(MAT.GLASS);
+  mb.quad(-5.2, 3, -16.5, -5.2, 3, 16.5, -5.2, 18, 16.5, -5.2, 18, -16.5);
+  mb.color(0.3, 0.2, 0.14).mat(MAT.PLAIN);
+  mb.box(-4.6, 4.2, -12, -1.2, 5, 12);
+  mb.color(0.2, 0.2, 0.22).mat(MAT.METAL);
+  for (const z of [-10, 10]) mb.box(-3.5, 0, z - 0.4, -2.3, 4.2, z + 0.4);
+  const e = atlasEntry(atlas, s.text);
+  const rgb = hexRgb(s.color);
+  mb.color(0.1, 0.1, 0.12).mat(MAT.METAL);
+  mb.box(-5.5, 2, 16.8, 3.5, 17.5, 18.4, '');
+  mb.color(...inkFor(rgb)).color2(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255).mat(MAT.SIGN, 1);
+  mb.quad(-5.3, 15.8, 18.45, 3.4, 15.8, 18.45, 3.4, 12.3, 18.45, -5.3, 12.3, 18.45, e.u0, e.v0, e.u1, e.v1);
+  mb.quad(3.4, 15.8, 16.75, -5.3, 15.8, 16.75, -5.3, 12.3, 16.75, 3.4, 12.3, 16.75, e.u0, e.v0, e.u1, e.v1);
+  mb.color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255).mat(MAT.PLAIN);
+  mb.quad(3.4, 12, 18.45, -5.3, 12, 18.45, -5.3, 3, 18.45, 3.4, 3, 18.45);
+  mb.quad(-5.3, 12, 16.75, 3.4, 12, 16.75, 3.4, 3, 16.75, -5.3, 3, 16.75);
+  mb.xform(null);
+  lights.push({ x: s.x + Math.cos(s.angle) * 10, y: 14, z: s.y + Math.sin(s.angle) * 10, color: rgb, r: 90, k: 0.6 });
+}
+
+function bench(mb, b) {
+  mb.xform(frame(b.x, 0, b.y, b.angle));
+  mb.color(0.18, 0.18, 0.2).mat(MAT.METAL);
+  for (const z of [-5, 5]) mb.box(-1.6, 0, z - 0.4, 1.4, 4.2, z + 0.4);
+  mb.color(0.52, 0.34, 0.2).mat(MAT.PLAIN);
+  mb.box(-1.8, 4.2, -6.2, 1.8, 5, 6.2);
+  mb.quad(-1.9, 5.4, -6.2, -1.9, 5.4, 6.2, -2.8, 9.2, 6.2, -2.8, 9.2, -6.2);
+  mb.xform(null);
+}
+
+function bin(mb, b) {
+  mb.color(0.16, 0.3, 0.26).mat(MAT.PLAIN);
+  mb.tube(b.x, 0, b.y, b.x, 6.5, b.y, 1.9, 2.1, 8, false);
+  mb.color(0.12, 0.13, 0.14).mat(MAT.METAL);
+  mb.tube(b.x, 6.5, b.y, b.x, 7.3, b.y, 2.3, 1.2, 8, true);
+}
+
+function hydrant(mb, h) {
+  mb.color(0.95, 0.75, 0.12).mat(MAT.PAINT);
+  mb.tube(h.x, 0, h.y, h.x, 4.6, h.y, 1.05, 0.95, 7, false);
+  mb.tube(h.x, 4.6, h.y, h.x, 5.8, h.y, 1.05, 0.3, 7, true);
+  mb.tube(h.x - 1.6, 3, h.y, h.x + 1.6, 3, h.y, 0.45, 0.45, 5, true);
+}
+
+/** A roadside billboard: two legs, a catwalk with spotlights and a printed advert. */
+function billboard(mb, atlas, b, lights) {
+  const w = Math.max(60, b.w);
+  const h = w * 0.36;
+  const y0 = 30;
+  mb.xform(frame(b.x, 0, b.y, b.angle));
+  mb.color(0.3, 0.31, 0.33).mat(MAT.METAL);
+  for (const z of [-w * 0.3, w * 0.3]) mb.box(-1.6, 0, z - 1.6, 1.6, y0 + h * 0.5, z + 1.6);
+  mb.color(0.1, 0.1, 0.12).mat(MAT.METAL);
+  mb.box(-1.4, y0 - 1.4, -w / 2 - 1.4, 0.6, y0 + h + 1.4, w / 2 + 1.4);
+  mb.box(0.6, y0 - 2.6, -w / 2, 5, y0 - 1.6, w / 2);
+  const rgb = hexRgb(b.color);
+  const e = atlasEntry(atlas, b.text);
+  const ink = inkFor(rgb);
+  const tw = Math.min(w * 0.92, h * 0.62 * e.aspect);
+  mb.color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255).mat(MAT.PLAIN);
+  mb.quad(0.65, y0 + h, -w / 2, 0.65, y0 + h, w / 2, 0.65, y0, w / 2, 0.65, y0, -w / 2);
+  mb.color(...ink).color2(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255).mat(MAT.SIGN, 1);
+  mb.quad(0.75, y0 + h * 0.84, tw / 2, 0.75, y0 + h * 0.84, -tw / 2, 0.75, y0 + h * 0.2, -tw / 2, 0.75, y0 + h * 0.2, tw / 2, e.u0, e.v0, e.u1, e.v1);
+  mb.color(...ink).mat(MAT.PLAIN);
+  mb.quad(0.72, y0 + h * 0.16, -w * 0.4, 0.72, y0 + h * 0.16, w * 0.4, 0.72, y0 + h * 0.1, w * 0.4, 0.72, y0 + h * 0.1, -w * 0.4);
+  for (const z of [-w * 0.33, 0, w * 0.33]) {
+    mb.color(0.15, 0.15, 0.17).mat(MAT.METAL);
+    mb.box(0.6, y0 - 2, z - 0.4, 6, y0 - 1.2, z + 0.4);
+    mb.color(1, 0.9, 0.7).color2(0.6, 0.6, 0.6).mat(MAT.EMIT, 180, 1);
+    mb.box(5, y0 - 1.6, z - 1.2, 6.6, y0 + 0.2, z + 1.2, '');
+  }
+  mb.xform(null);
+  lights.push({ x: b.x + Math.cos(b.angle) * 30, y: y0 + h * 0.5, z: b.y + Math.sin(b.angle) * 30, color: [255, 236, 200], r: 120, k: 0.5 });
+}
+
+/** A beach snack kiosk with a striped awning and a sign board. */
+function kiosk(mb, atlas, k, lights) {
+  const rgb = hexRgb(k.color);
+  mb.xform(frame(k.x, 0, k.y, k.angle));
+  mb.color(0.96, 0.94, 0.88).mat(MAT.PLAIN);
+  mb.box(-8, 0, -11, 6, 14, 11);
+  mb.color(0.45, 0.3, 0.18).mat(MAT.PLAIN);
+  mb.box(6, 6, -10, 8.5, 7, 10);
+  for (let i = 0; i < 6; i += 1) {
+    const c = i % 2 ? [1, 1, 1] : rgb.map((v) => v / 255);
+    mb.color(...c).mat(MAT.PLAIN);
+    mb.quad(6, 15.5, -12 + i * 4, 6, 15.5, -8 + i * 4, 13, 12, -8 + i * 4, 13, 12, -12 + i * 4);
+  }
+  mb.color(0.92, 0.88, 0.8).mat(MAT.PLAIN);
+  mb.box(-9, 14, -12, 7, 15.5, 12);
+  const e = atlasEntry(atlas, k.text);
+  mb.color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255).color2(0.1, 0.06, 0.12).mat(MAT.SIGN, 0);
+  mb.quad(1.5, 22, 9.5, 1.5, 22, -9.5, 1.5, 16, -9.5, 1.5, 16, 9.5, e.u0, e.v0, e.u1, e.v1);
+  mb.color(0.15, 0.12, 0.1).mat(MAT.PLAIN);
+  mb.box(-0.5, 15.5, -10.5, 1.4, 22.6, 10.5);
+  mb.xform(null);
+  lights.push({ x: k.x + Math.cos(k.angle) * 16, y: 16, z: k.y + Math.sin(k.angle) * 16, color: rgb, r: 80, k: 0.6 });
+}
+
+function lounger(mb, l) {
+  const c = hexRgb(l.color);
+  mb.xform(frame(l.x, 0, l.y, l.angle));
+  mb.color(0.95, 0.95, 0.94).mat(MAT.PLAIN);
+  for (const [x, z] of [[-6, -2.4], [-6, 2.4], [5, -2.4], [5, 2.4]]) mb.box(x - 0.3, 0, z - 0.3, x + 0.3, 2.4, z + 0.3);
+  mb.color(c[0] / 255, c[1] / 255, c[2] / 255).mat(MAT.PLAIN);
+  mb.box(-6.5, 2.4, -2.7, 3.5, 3.1, 2.7);
+  mb.quad(3.5, 3.1, -2.7, 3.5, 3.1, 2.7, 8, 7.4, 2.7, 8, 7.4, -2.7);
+  mb.xform(null);
+}
+
+function surfboard(mb, b) {
+  const c = hexRgb(b.color);
+  mb.xform(frame(b.x, -2, b.y, b.angle, 0, b.lean));
+  mb.color(c[0] / 255, c[1] / 255, c[2] / 255).mat(MAT.PAINT);
+  mb.box(-0.35, 0, -2.2, 0.35, 15, 2.2, '');
+  mb.poly([[0.36, 15, -2.2], [0.36, 15, 2.2], [0.36, 20, 0]]);
+  mb.poly([[-0.36, 15, 2.2], [-0.36, 15, -2.2], [-0.36, 20, 0]]);
+  mb.color(1, 1, 1).mat(MAT.PLAIN);
+  mb.quad(0.37, 2, -0.3, 0.37, 2, 0.3, 0.37, 18, 0.3, 0.37, 18, -0.3);
+  mb.xform(null);
+}
+
 function chunkBounds(mb) {
   const f = mb.f32;
   let x0 = Infinity;
@@ -796,6 +960,18 @@ export function buildCityMeshes(gl, city, atlas) {
   for (const c of city.cranes ?? []) crane(at(c.x, c.y), c);
   for (const p of city.piers) pier(at((p.x0 + p.x1) / 2, (p.y0 + p.y1) / 2), p);
   for (const r of city.roads) bridges(at((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2), r);
+  const fu = city.furniture;
+  if (fu) {
+    for (const s of fu.signals) signal(at(s.x, s.y), s);
+    for (const s of fu.shelters) shelter(at(s.x, s.y), atlas, s, signs);
+    for (const b of fu.benches) bench(at(b.x, b.y), b);
+    for (const b of fu.bins) bin(at(b.x, b.y), b);
+    for (const h of fu.hydrants) hydrant(at(h.x, h.y), h);
+    for (const b of fu.billboards) billboard(at(b.x, b.y), atlas, b, signs);
+    for (const k of fu.kiosks) kiosk(at(k.x, k.y), atlas, k, signs);
+    for (const l of fu.loungers) lounger(at(l.x, l.y), l);
+    for (const b of fu.boards) surfboard(at(b.x, b.y), b);
+  }
   for (const lot of city.lots) {
     const w = lot.x1 - lot.x0;
     const h = lot.y1 - lot.y0;

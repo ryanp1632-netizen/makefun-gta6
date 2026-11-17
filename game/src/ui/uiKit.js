@@ -52,6 +52,36 @@ export function outlined(ctx, text, x, y, fill, size, weight = 700, align = 'lef
   ctx.fillText(text, x, y);
 }
 
+/** A rounded pill with bold text (state tags); returns its width. Anchored at its left edge. */
+export function chip(ctx, str, x, y, fill, ink = '#1a1030', size = 12, h = 20) {
+  ctx.font = `800 ${size}px ${FONT}`;
+  const w = ctx.measureText(str).width + h * 0.8;
+  roundRect(ctx, x, y, w, h, h / 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.fillStyle = ink;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(str, x + w / 2, y + h / 2 + 1);
+  ctx.textBaseline = 'alphabetic';
+  return w;
+}
+
+/** A horizontal meter: dark track, coloured fill (0..1) with a light top edge. */
+export function meter(ctx, x, y, w, h, k, color, track = 'rgba(255,255,255,0.14)') {
+  roundRect(ctx, x, y, w, h, h / 2);
+  ctx.fillStyle = track;
+  ctx.fill();
+  const fw = Math.max(0, Math.min(1, k)) * w;
+  if (fw > 1) {
+    roundRect(ctx, x, y, Math.max(h, fw), h, h / 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    ctx.fillRect(x + h / 2, y + 1, Math.max(0, fw - h), Math.max(1, h * 0.25));
+  }
+}
+
 export function text(ctx, str, x, y, fill, size, weight = 600, align = 'left', font = FONT) {
   ctx.font = `${weight} ${size}px ${font}`;
   ctx.textAlign = align;
@@ -141,6 +171,49 @@ export function drawIcon(ctx, icon, x, y, r, color) {
       starPath(ctx, 0, 0, k * 1.05);
       ctx.fill();
       break;
+    case 'note':
+      ctx.arc(-k * 0.35, k * 0.55, k * 0.38, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(-k * 0.05, -k, k * 0.22, k * 1.55);
+      ctx.fillRect(-k * 0.05, -k, k * 0.8, k * 0.32);
+      break;
+    case 'anchor':
+      ctx.lineWidth = Math.max(1.5, r * 0.18);
+      ctx.arc(0, -k * 0.65, k * 0.25, 0, Math.PI * 2);
+      ctx.moveTo(0, -k * 0.4);
+      ctx.lineTo(0, k);
+      ctx.moveTo(-k * 0.5, -k * 0.1);
+      ctx.lineTo(k * 0.5, -k * 0.1);
+      ctx.moveTo(-k * 0.8, k * 0.25);
+      ctx.quadraticCurveTo(0, k * 1.4, k * 0.8, k * 0.25);
+      ctx.stroke();
+      break;
+    case 'crown':
+      ctx.moveTo(-k, k * 0.6);
+      ctx.lineTo(-k, -k * 0.5);
+      ctx.lineTo(-k * 0.5, k * 0.05);
+      ctx.lineTo(0, -k * 0.8);
+      ctx.lineTo(k * 0.5, k * 0.05);
+      ctx.lineTo(k, -k * 0.5);
+      ctx.lineTo(k, k * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    case 'plane':
+      ctx.moveTo(0, -k);
+      ctx.lineTo(k * 0.18, -k * 0.2);
+      ctx.lineTo(k, k * 0.25);
+      ctx.lineTo(k * 0.18, k * 0.15);
+      ctx.lineTo(k * 0.12, k * 0.7);
+      ctx.lineTo(k * 0.4, k);
+      ctx.lineTo(-k * 0.4, k);
+      ctx.lineTo(-k * 0.12, k * 0.7);
+      ctx.lineTo(-k * 0.18, k * 0.15);
+      ctx.lineTo(-k, k * 0.25);
+      ctx.lineTo(-k * 0.18, -k * 0.2);
+      ctx.closePath();
+      ctx.fill();
+      break;
     case 'tape':
       ctx.fillRect(-k, -k * 0.6, k * 2, k * 1.2);
       ctx.fillStyle = 'rgba(10,6,24,0.85)';
@@ -166,6 +239,17 @@ export function drawWeaponIcon(ctx, id, x, y, w, color = '#f4f1de') {
   ctx.scale(s, s);
   ctx.fillStyle = color;
   ctx.beginPath();
+  if (id === 'fists') {
+    // A clenched fist: four knuckles over the palm and the thumb across.
+    for (let i = 0; i < 4; i += 1) ctx.rect(30 + i * 13, -22, 11, 18);
+    ctx.rect(28, -6, 54, 30);
+    ctx.rect(14, 4, 26, 12);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(10,6,24,0.55)';
+    ctx.fillRect(30, -5, 52, 2);
+    ctx.restore();
+    return;
+  }
   if (id === 'pistol') {
     ctx.rect(20, -14, 62, 16);
     ctx.moveTo(28, 2);

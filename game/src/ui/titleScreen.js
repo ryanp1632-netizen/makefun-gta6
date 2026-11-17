@@ -133,7 +133,7 @@ export function drawTitle(ctx, w, h, state) {
   outlined(ctx, 'HOW TO PLAY', bx + 20, by + 34, ACCENT.teal, 18, 900, 'left', DISPLAY);
   const rows = [
     ['WASD', 'Walk / drive'], ['Mouse', 'Aim  ·  Click to shoot'], ['Shift', 'Sprint'], ['Space', 'Handbrake drift'],
-    ['F', 'Enter / steal a vehicle'], ['E', 'Interact  ·  next station'], ['Q', 'Previous radio station'], ['R  1-4', 'Reload  ·  weapons'], ['M  Esc', 'City map  ·  pause'],
+    ['F', 'Enter / steal a vehicle'], ['E', 'Interact  ·  next station'], ['Q', 'Previous radio station'], ['R  0-4', 'Reload  ·  fists, weapons'], ['M  Esc', 'City map  ·  pause'],
     ['V', '3D chase / classic camera'],
   ];
   rows.forEach(([k, d], i) => {

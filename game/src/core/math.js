@@ -113,3 +113,10 @@ export function formatCash(n) {
   const s = Math.floor(Math.abs(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return (n < 0 ? '-$' : '$') + s;
 }
+
+/** The game clock as HH:MM. */
+export function formatClock(clock) {
+  const h = Math.floor(clock.hours);
+  const m = Math.floor((clock.hours - h) * 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}

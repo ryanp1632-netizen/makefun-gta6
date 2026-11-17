@@ -2,10 +2,10 @@
 // (much less of it with the handbrake, so the tail steps out into a drift), speed-sensitive
 // steering, collisions with buildings, water and other vehicles, damage, smoke, fire and the
 // explosion that ends a wreck. Skid marks and tyre smoke come from the sideways slip.
-import { approach, clamp, wrapAngle } from '../core/math.js';
 import { VEHICLE_MODELS } from './vehicleModels.js';
 import { isWater, pushOutOfBuildings } from '../world/collision.js';
 import { emitEngineSmoke, emitExplosion, emitFire, emitSparks, emitSplash, emitTyreSmoke } from '../render/particles.js';
+import { approach, clamp, wrapAngle } from '../core/math.js';
 
 let nextVehicleId = 1;
 

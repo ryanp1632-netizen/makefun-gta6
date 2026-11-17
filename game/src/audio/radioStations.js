@@ -11,6 +11,22 @@ export const STATIONS = [
   { id: 'pulse', name: 'PULSE 104.3  ·  Club Keys', genre: 'Electro house', color: '#7dff6a', bpm: 124, root: 41, scale: [0, 2, 3, 5, 7, 8, 10], chords: [0, 0, 5, 6] },
 ];
 
+/** Each station's playlist: [title, artist], all invented. A track lasts BARS_PER_TRACK bars. */
+export const TRACKS = {
+  wave: [['Pink Horizon', 'Lumen Kids'], ['Causeway Lights', 'Velvet Dial'], ['Palm Static', 'Sundrift'], ['Chrome Lagoon', 'Halo Arcade']],
+  calle: [['Fuego en la Bahia', 'La Marea'], ['Calle Nueve', 'DJ Pelicano'], ['Mercado Bounce', 'Yeyo Tres'], ['Brisa Mala', 'Reina Coral']],
+  lowtide: [['Slow Tide Dub', 'Mangrove Sound'], ['Rain on the Pier', 'Kelp & Kettle'], ['Dock Nine Skank', 'Low Pressure'], ['Driftwood Version', 'Saltwater Hi-Fi']],
+  pulse: [['Voltage Club Mix', 'Kilowatt Kids'], ['Strobe Heart', 'Ultraviolette'], ['Deep Neon', 'Circuit Palms'], ['Afterhours on the Mile', 'Midi Mara']],
+};
+export const BARS_PER_TRACK = 48;
+
+/** What is playing on station `st` after `step` sixteenth notes: { title, artist, index }. */
+export function nowPlaying(st, step = 0) {
+  const list = TRACKS[st.id];
+  const index = Math.floor(Math.max(0, step) / (16 * BARS_PER_TRACK)) % list.length;
+  return { title: list[index][0], artist: list[index][1], index };
+}
+
 /** The notes (midi) of the triad on scale degree `deg`, plus a seventh. */
 function chord(st, deg, octave = 0) {
   const s = st.scale;
@@ -32,7 +48,9 @@ function scheduleStep(ac, out, st, step, t) {
   const deg = st.chords[bar % 4];
   const ch = chord(st, deg);
   const rootF = midiToFreq(scaleNote(st, deg, 1));
-  const r = (k) => hash2(bar * 16 + s, k, st.bpm);
+  // Every track of the playlist gets its own melodic variation.
+  const track = Math.floor(bar / BARS_PER_TRACK);
+  const r = (k) => hash2(bar * 16 + s, k, st.bpm + track * 131);
   if (st.id === 'wave') {
     if (s % 8 === 0) kick(ac, out, t, 0.8);
     if (s % 8 === 4) snare(ac, out, t, 0.45, 1400);

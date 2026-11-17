@@ -3,29 +3,32 @@
 // COMPLETE results and the hospital / precinct respawn. Each frame it reads input for the active
 // screen, steps the simulation when it should run, plays the sounds, draws the world with the 3D
 // renderer (or the classic top-down one, toggled with V) and the HUD and menus over it.
+// Imports run from the game's systems to its presentation: saves and the story, the radio,
+// driving, the law, combat, the simulation and its city, then the 3D renderer, HUD and screens.
+import { applySave, readSave, summarizeSave, writeSave } from '../save/saveGame.js';
+import { nowPlaying } from '../audio/radioStations.js';
+import { createVehicle } from '../vehicles/drivingPhysics.js';
+import { clearWanted } from '../police/wantedSystem.js';
+import { WEAPONS } from '../combat/weapons.js';
+import { createGame, stepGame, STEP, CITY_SEED } from './game.js';
 import { createRenderer3d, render3d, aimAt3d, cameraYaw, project3d, drawWorldLabels } from '../render3d/renderer3d.js';
 import { titleOrbit, TITLE_SKY } from '../render3d/chaseCamera.js';
-import { createGame, stepGame, STEP, CITY_SEED } from './game.js';
+import { drawCrosshair, drawHud } from '../hud/hud.js';
+import { drawCityMap } from '../hud/cityMap.js';
+import { createAudio, currentStation, playEvents, setVolumes, switchStation, uiBlip, unlockAudio, updateLoops } from '../audio/audioEngine.js';
 import { createInput, readControls } from './input.js';
 import { createRenderer, renderWorld } from '../render/renderer.js';
 import { snapCamera, worldToScreen } from '../render/camera.js';
-import { drawCrosshair, drawHud } from '../hud/hud.js';
-import { drawCityMap } from '../hud/cityMap.js';
 import { drawTitle, TITLE_ITEMS } from '../ui/titleScreen.js';
 import { PAUSE_ITEMS, drawControls, drawListMenu, drawPause, drawSettings, shopRows } from '../ui/menus.js';
 import { drawDown, drawFailed, drawResults } from '../ui/resultsScreen.js';
-import { createAudio, currentStation, playEvents, setVolumes, switchStation, uiBlip, unlockAudio, updateLoops } from '../audio/audioEngine.js';
-import { applySave, readSave, summarizeSave, writeSave } from '../save/saveGame.js';
 import { loadSettings, SETTING_ROWS, storeSettings } from '../save/settings.js';
 import { skipLine } from '../missions/dialogue.js';
 import { abandonMission } from '../missions/missionRunner.js';
 import { spawnGarageCar } from '../missions/sideActivities.js';
 import { buyItem, garageItems, notify, shopItems, PROPERTIES } from '../progression/economy.js';
-import { clearWanted } from '../police/wantedSystem.js';
-import { createVehicle } from '../vehicles/drivingPhysics.js';
 import { placeOnLane, populateTraffic } from '../ai/trafficAI.js';
 import { populatePeds } from '../ai/pedestrianAI.js';
-import { WEAPONS } from '../combat/weapons.js';
 import { formatCash } from './math.js';
 
 /** Fill the streets around a point right away (new game, title, screenshots). */
@@ -157,7 +160,7 @@ function respawn(app) {
   const poi = arrest ? game.city.pois.police : game.city.pois.hospital;
   game.economy.cash = Math.max(0, game.economy.cash - app.bill);
   if (arrest) {
-    for (const k of Object.keys(pl.owned)) if (k !== 'pistol') pl.owned[k] = false;
+    for (const k of Object.keys(pl.owned)) if (k !== 'pistol' && k !== 'fists') pl.owned[k] = false;
     pl.weapon = 'pistol';
     pl.ammo.pistol = { mag: 12, reserve: 24 };
     pl.armor = 0;
@@ -446,7 +449,7 @@ export function frameApp(app, dt) {
     inp.flush();
     return;
   }
-  const showStation = game.player.vehicle && app.stationT < 4 ? { name: station.name, color: station.color } : game.player.vehicle ? { name: station.name, color: station.color } : null;
+  const showStation = game.player.vehicle ? { name: station.name, color: station.color, track: nowPlaying(station, app.audio.radio.step) } : null;
   drawHud(ctx, game, w, h, showStation);
   if (game.missions.failed) drawFailed(ctx, w, h, game.missions.failed);
   if (app.screen === 'play' && !game.player.vehicle && !game.player.dead) {

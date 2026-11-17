@@ -131,6 +131,10 @@ export function playEvents(audio, game, events) {
       case 'thud':
         tone(ac, out, t, 90, 0.12, 0.3 * near, 'sine', 50);
         break;
+      case 'punch':
+        noiseBurst(ac, out, t, 0.06, (e.hit ? 0.4 : 0.12) * near, 'lowpass', e.hit ? 900 : 2400, 0.9);
+        if (e.hit) tone(ac, out, t, 110, 0.09, 0.32 * near, 'sine', 55);
+        break;
       case 'splash':
         noiseBurst(ac, out, t, 0.5, 0.35 * near, 'lowpass', 2500, 0.8, 300);
         break;

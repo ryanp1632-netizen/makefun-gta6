@@ -172,6 +172,7 @@ in vec4 v_col2;
 in vec2 v_uv;
 flat in vec4 v_mat;
 uniform sampler2D u_atlas;
+uniform float u_nearFade;
 out vec4 o;
 
 vec3 skyRefl(vec3 R) {
@@ -181,6 +182,9 @@ vec3 skyRefl(vec3 R) {
 }
 
 void main() {
+  // Anything right in front of the lens dissolves (dithered) instead of clipping the near plane.
+  float dEye = length(u_camPos - v_pos);
+  if (dEye < u_nearFade && dEye < u_nearFade * (0.35 + 0.65 * hash12(gl_FragCoord.xy))) discard;
   vec3 n = normalize(v_nrm);
   if (!gl_FrontFacing) n = -n;
   vec3 V = normalize(u_camPos - v_pos);
@@ -281,9 +285,10 @@ void main() {
       base = mix(panel, neon * 0.9, t.a);
       emit = (neon * t.a * 3.5 + vec3(1.0) * core * 2.0) * (0.25 + 0.75 * u_neon) + neon * t.a * 0.5;
     } else {
+      // Printed boards: the lettering takes the vertex colour over the background colour.
       vec3 bg = toLin(v_col2.rgb);
-      base = mix(bg, vec3(1.0), t.a);
-      emit = base * (0.12 + 0.9 * u_neon);
+      base = mix(bg, toLin(v_col.rgb), t.a);
+      emit = base * (0.1 + 0.7 * u_neon);
     }
     specK = 0.15;
   } else if (m == 4) {
@@ -521,6 +526,26 @@ out vec4 o;
 void main() {
   int shape = int(v_mat.x + 0.5);
   vec3 V = normalize(u_camPos - v_pos);
+  if (shape == 8) {
+    // See-through vehicle glass: a dark tint with a Fresnel sky reflection and a sun glint, so
+    // the cabin and its driver show through the windscreen.
+    vec3 n = normalize(v_nrm);
+    if (dot(n, V) < 0.0) n = -n;
+    float ndv = max(dot(n, V), 0.0);
+    float fres = 0.12 + 0.88 * pow(1.0 - ndv, 4.0);
+    vec3 R = reflect(-V, n);
+    vec3 sky = skyBase(normalize(vec3(R.x, max(R.y, 0.03), R.z)));
+    vec3 tint = toLin(v_col.rgb) * (u_ambSky + u_sunCol * 0.15);
+    vec3 glint = u_sunCol * pow(max(dot(R, u_skySun), 0.0), 260.0) * 6.0;
+    float ga = clamp(v_col.a * (0.4 + 0.55 * fres), 0.0, 0.95);
+    vec3 gc = mix(tint, sky * 0.9, fres) + glint;
+    vec3 gdv = v_pos - u_camPos;
+    float gd = max(length(gdv) - u_fogStart, 0.0);
+    float gf = clamp(1.0 - exp(-gd * gd * u_fogDen * u_fogDen), 0.0, 1.0);
+    gc = mix(gc, fogColor(gdv / max(length(gdv), 1.0)), gf);
+    o = vec4(gc * ga, ga);
+    return;
+  }
   float k = v_mat.y / 255.0 * 12.0;
   bool additive = v_mat.z > 0.5;
   vec2 q = v_uv * 2.0 - 1.0;

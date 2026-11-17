@@ -1,21 +1,16 @@
 // Builds Halcyon Keys from a seed: a jittered avenue grid per island joined by causeways, the
 // blocks between the roads split into lots, and each lot filled the way its district builds
 // (towers, pastel hotels, terracotta lanes, villas, warehouses, container yards).
+import { DISTRICTS, districtIdAt, WORLD_H, WORLD_W } from './districts.js';
+import { buildRoadGraph, LANE_W, SIDEWALK } from './roadGraph.js';
+import { createTerrain } from './terrain.js';
+import { placeLandmarks } from './landmarks.js';
+import { furnishStreets } from './streetFurniture.js';
+import { dressCoast, dressStreets, buildAirfield, buildIsle, traceCoast } from './cityDressing.js';
+import { buildSpatialIndex } from './collision.js';
 import { createRandom } from '../core/random.js';
 import { clamp } from '../core/math.js';
-import { DISTRICTS, districtIdAt, WORLD_H, WORLD_W } from './districts.js';
-import { createTerrain } from './terrain.js';
-import { buildRoadGraph, LANE_W, SIDEWALK } from './roadGraph.js';
-import { buildSpatialIndex } from './collision.js';
 import { CAR_PAINT } from '../vehicles/vehicleModels.js';
-import { dressCoast, dressStreets, buildAirfield, buildIsle, traceCoast } from './cityDressing.js';
-import { placeLandmarks } from './landmarks.js';
-
-export const BRANDS = ['SUNWAVE', 'TIDAL GIN', 'NEONADE', 'MANGO RUSH', 'KEYCAB', 'GULF GOLD', 'BRISA COLA', 'PALMCO', 'REEFLINE', 'ORCA MOBILE', 'HALO JUICE', 'SALT & SON', 'FLAMINGO FM', 'KOI KOI'];
-export const HOTELS = ['HOTEL CORALIE', 'THE SEABREEZE', 'STARLITE', 'AZURE ARMS', 'PALOMA GRAND', 'LA MAREA', 'MOONRAY', 'THE FLORETTE', 'CASA LUNA', 'NOVA BAY', 'THE BELMAR', 'GLORIETTA'];
-export const NEON = ['#ff4fd8', '#3ee6ff', '#ffe14f', '#7dff6a', '#ff6a4f', '#b26bff', '#ff8fd0'];
-
-const snap = (v) => Math.round(v / 32) * 32;
 
 /** Generate the whole city for `seed`. */
 export function generateCity(seed) {
@@ -43,8 +38,15 @@ export function generateCity(seed) {
   });
   buildSpatialIndex(city);
   placeLandmarks(city, rng);
+  furnishStreets(city);
   return city;
 }
+
+export const BRANDS = ['SUNWAVE', 'TIDAL GIN', 'NEONADE', 'MANGO RUSH', 'KEYCAB', 'GULF GOLD', 'BRISA COLA', 'PALMCO', 'REEFLINE', 'ORCA MOBILE', 'HALO JUICE', 'SALT & SON', 'FLAMINGO FM', 'KOI KOI'];
+export const HOTELS = ['HOTEL CORALIE', 'THE SEABREEZE', 'STARLITE', 'AZURE ARMS', 'PALOMA GRAND', 'LA MAREA', 'MOONRAY', 'THE FLORETTE', 'CASA LUNA', 'NOVA BAY', 'THE BELMAR', 'GLORIETTA'];
+export const NEON = ['#ff4fd8', '#3ee6ff', '#ffe14f', '#7dff6a', '#ff6a4f', '#b26bff', '#ff8fd0'];
+
+const snap = (v) => Math.round(v / 32) * 32;
 
 function spread(a, b, n, rng, jitter) {
   const out = [a];

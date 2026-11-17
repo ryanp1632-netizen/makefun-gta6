@@ -128,14 +128,17 @@ export function buildEffects(mb, scene) {
     } else glow.push(p);
   }
   puffs.sort((a, b) => b.d - a.d);
-  for (const { p } of puffs) {
+  for (const { p, d } of puffs) {
     const a = p.life / p.max;
     const age = 1 - a;
     if (p.kind === P_SMOKE || p.kind === P_TYRE) {
       const tyre = p.kind === P_TYRE;
       const c = p.color;
       const g = tyre ? 0.82 : 1;
-      mb.color((c[0] / 255) * g, (c[1] / 255) * g, (c[2] / 255) * g, (tyre ? 0.38 : 0.6) * Math.min(1, a * 1.6));
+      // Smoke thins out as it reaches the lens instead of fogging the whole frame.
+      const lens = Math.min(1, Math.max(0, (Math.sqrt(d) - 22) / 50));
+      if (lens <= 0.01) continue;
+      mb.color((c[0] / 255) * g, (c[1] / 255) * g, (c[2] / 255) * g, (tyre ? 0.38 : 0.6) * Math.min(1, a * 1.6) * lens);
       setFx(mb, SH.PUFF, 1, false, (p.x * 7) % 255);
       sprite(mb, cam, p.x, (tyre ? 4 : 7) + age * (tyre ? 14 : 30), p.y, p.size * (tyre ? 2.2 : 1.6));
     } else if (p.kind === P_DEBRIS) {
@@ -175,14 +178,18 @@ export function buildEffects(mb, scene) {
         setFx(mb, SH.SOFT, 6, true);
         sprite(mb, cam, p.x, 14, p.y, p.size * (0.7 + age) * 1.5);
       } else {
+        // Muzzle flash: a hot core, a wide soft bloom and a forward star of flame.
         mb.color(1, 0.8, 0.45, a);
-        setFx(mb, SH.SOFT, 5, true);
-        sprite(mb, cam, p.x, 13.6, p.y, p.size * 0.75);
-        const ex = p.x + Math.cos(p.rot) * p.size * 1.5;
-        const ez = p.y + Math.sin(p.rot) * p.size * 1.5;
-        setFx(mb, SH.SOLID, 6, true);
+        setFx(mb, SH.SOFT, 6, true);
+        sprite(mb, cam, p.x, 13.6, p.y, p.size * 0.95);
+        mb.color(1, 0.62, 0.25, a * 0.6);
+        setFx(mb, SH.SOFT, 1.8, true);
+        sprite(mb, cam, p.x, 13.6, p.y, p.size * 1.7);
+        const ex = p.x + Math.cos(p.rot) * p.size * 2;
+        const ez = p.y + Math.sin(p.rot) * p.size * 2;
+        setFx(mb, SH.SOLID, 7, true);
         mb.color(1, 0.9, 0.6, a);
-        streak(mb, cam, p.x, 13.6, p.y, ex, 13.6, ez, 1.2);
+        streak(mb, cam, p.x, 13.6, p.y, ex, 13.6, ez, 1.6);
       }
     } else if (p.kind === P_TRACER) {
       mb.color(1, 0.82, 0.45, a * 0.85);
@@ -235,11 +242,13 @@ export function buildEffects(mb, scene) {
     const lx = hx + f[0] * 13 - ux * 8;
     const ly = hy + f[1] * 13 - uy * 8;
     const lz = hz + f[2] * 13 - uz * 8;
-    mb.color(1, 0.97, 0.86, 0.4 + night * 0.45);
-    setFx(mb, SH.BEAM, 0.9 + night * 2, true);
+    // The beam stays readable at dusk, and blazes at night.
+    const dusk = Math.max(night, game.light.neon ?? 0, 0.35);
+    mb.color(1, 0.97, 0.86, 0.45 + dusk * 0.45);
+    setFx(mb, SH.BEAM, 1.2 + dusk * 2, true);
     cone(mb, lx, ly, lz, h.lightX, 0, h.lightY, 1.5, 58, 18);
-    mb.color(1, 0.98, 0.9, 0.3 + night * 0.6);
-    setFx(mb, SH.SOFT, 0.2 + night * 2.2, true);
+    mb.color(1, 0.98, 0.9, 0.35 + dusk * 0.55);
+    setFx(mb, SH.SOFT, 0.5 + dusk * 2, true);
     groundQuad(mb, h.lightX, 0.7, h.lightY, 70);
     mb.color(1, 1, 0.95, 1);
     setFx(mb, SH.SOFT, 10, true);

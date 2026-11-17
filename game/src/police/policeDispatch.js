@@ -193,6 +193,48 @@ export function spawnHeli(game) {
   game.heli = { x: p.x + Math.cos(a) * 900, y: p.y + Math.sin(a) * 900, vx: 0, vy: 0, angle: a + Math.PI, rotor: 0, lightX: p.x + 200, lightY: p.y, lit: false, alt: 150 };
 }
 
+const CALL_SIGNS = ['TARPON', 'HERON', 'MARLIN', 'KESTREL', 'OSPREY', 'BARRACUDA', 'GROUPER', 'IBIS'];
+
+/** A cruiser's radio call sign, stable for its lifetime (e.g. HERON-17). */
+export function callSign(v) {
+  return `${CALL_SIGNS[v.id % CALL_SIGNS.length]}-${((v.id * 7) % 40) + 10}`;
+}
+
+/**
+ * The units after the player right now, nearest first: { sign, kind: 'car' | 'air' | 'foot',
+ * d (world units), state }. States: RAMMING (on the bumper), PURSUIT (in sight), ROADBLOCK,
+ * SPOTLIGHT / SWEEPING (the helicopter), ON FOOT (officers out of their car), SEARCHING.
+ */
+export function describeResponse(game) {
+  const p = playerPos(game);
+  const out = [];
+  if (game.wanted.level === 0) return out;
+  const h = game.heli;
+  if (h) out.push({ sign: 'SKYHOOK-1', kind: 'air', d: Math.hypot(h.x - p.x, h.y - p.y), state: h.lit ? 'SPOTLIGHT' : 'SWEEPING' });
+  for (const v of game.vehicles) {
+    if (v.model !== 'police' || v.wrecked) continue;
+    if (v.ai !== 'police' && v.ai !== 'roadblock' && v.ai !== 'pursuit') continue;
+    const d = Math.hypot(v.x - p.x, v.y - p.y);
+    if (d > 1600) continue;
+    let state = 'SEARCHING';
+    if (v.ai === 'roadblock') state = 'ROADBLOCK';
+    else if (v.deployed) state = 'ON FOOT';
+    else if (d < 80) state = 'RAMMING';
+    else if (d < 480 && hasLineOfSight(game.city, v.x, v.y, p.x, p.y)) state = 'PURSUIT';
+    out.push({ sign: callSign(v), kind: 'car', d, state });
+  }
+  let foot = 0;
+  let footD = Infinity;
+  for (const ped of game.peds) {
+    if (ped.team !== 'police' || ped.dead || !ped.hostile) continue;
+    foot += 1;
+    footD = Math.min(footD, Math.hypot(ped.x - p.x, ped.y - p.y));
+  }
+  if (foot) out.push({ sign: `FOOT x${foot}`, kind: 'foot', d: footD, state: footD < 200 ? 'ENGAGING' : 'ON FOOT' });
+  out.sort((a, b) => a.d - b.d);
+  return out;
+}
+
 /** Dispatch and stand down units to match the wanted level. */
 export function updatePolice(game, dt) {
   const level = game.wanted.level;

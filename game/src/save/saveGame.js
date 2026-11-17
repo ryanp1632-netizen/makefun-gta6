@@ -2,8 +2,7 @@
 // weapons and ammo, the clock and lifetime stats. Written at the safehouse and after every job;
 // read by Continue on the title screen, which also shows the slot's summary.
 import { MISSIONS } from '../missions/storyMissions.js';
-import { formatCash } from '../core/math.js';
-import { formatClock } from '../world/dayNight.js';
+import { formatCash, formatClock } from '../core/math.js';
 
 const SAVE_KEY = 'halcyonKeys.save.v1';
 

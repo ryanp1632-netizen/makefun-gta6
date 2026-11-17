@@ -84,7 +84,7 @@ export function drawControls(ctx, w, h) {
   panel(ctx, x, y, bw, bh, ACCENT.sun, 0.9);
   outlined(ctx, 'CONTROLS', x + 30, y + 48, ACCENT.sun, 28, 900, 'left', DISPLAY);
   const cols = [
-    ['ON FOOT', [['W A S D', 'Move (camera-relative in 3D)'], ['Mouse', 'Aim (camera turns with it)'], ['Left click', 'Shoot'], ['Shift', 'Sprint'], ['R', 'Reload'], ['1-4 / wheel', 'Switch weapon'], ['F', 'Enter or steal a vehicle'], ['E', 'Interact (shops, safehouse)']]],
+    ['ON FOOT', [['W A S D', 'Move (camera-relative in 3D)'], ['Mouse', 'Aim (camera turns with it)'], ['Left click', 'Shoot'], ['Shift', 'Sprint'], ['R', 'Reload'], ['0-4 / wheel', 'Fists, switch weapon'], ['F', 'Enter or steal a vehicle'], ['E', 'Interact (shops, safehouse)']]],
     ['DRIVING', [['W / S', 'Throttle / brake & reverse'], ['A / D', 'Steer'], ['Space', 'Handbrake (drift)'], ['F', 'Get out'], ['Q / E', 'Radio station'], ['Click', 'Drive-by (pistol, SMG)'], ['E at a marker', 'Respray, race, taxi shift'], ['V', '3D chase / classic view']]],
   ];
   cols.forEach(([title, rows], c) => {

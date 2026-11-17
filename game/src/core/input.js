@@ -85,7 +85,7 @@ export function readControls(input, game, out, view3d = null) {
   out.interact = input.peek('KeyE');
   out.reload = input.peek('KeyR');
   out.weaponNext = input.mouse.wheel > 0 ? 1 : input.mouse.wheel < 0 ? -1 : 0;
-  out.weaponSlot = input.peek('Digit1') ? 1 : input.peek('Digit2') ? 2 : input.peek('Digit3') ? 3 : input.peek('Digit4') ? 4 : 0;
+  out.weaponSlot = input.peek('Digit1') ? 1 : input.peek('Digit2') ? 2 : input.peek('Digit3') ? 3 : input.peek('Digit4') ? 4 : input.peek('Digit0') || input.peek('Backquote') ? 'fists' : 0;
   out.radio = input.peek('KeyQ') ? -1 : 0;
   return out;
 }

@@ -1,14 +1,15 @@
-// The full-screen city map (M): every district named in its own colour, landmarks and activities
-// as icons with a legend, the current job and Sunset Tapes, police and the player, plus the
-// story chapter list and progress totals.
+// The full-screen city map (M): every district named in its own colour, story venues and
+// activities as icons with a legend, the GPS route to the current objective, Sunset Tapes,
+// police and the player, plus the story chapter list, the current job card and progress totals.
 import { buildMapCanvas } from './minimap.js';
 import { DISTRICTS } from '../world/districts.js';
 import { MISSIONS, CAST } from '../missions/storyMissions.js';
-import { missionMarkers, nextMission } from '../missions/missionRunner.js';
+import { missionMarkers, nextMission, stageProgress } from '../missions/missionRunner.js';
 import { activityPoints } from '../missions/sideActivities.js';
 import { respectLevel } from '../progression/economy.js';
 import { drawPortrait } from '../ui/portraits.js';
-import { ACCENT, DISPLAY, FONT, drawIcon, outlined, panel, text } from '../ui/uiKit.js';
+import { ACCENT, DISPLAY, FONT, drawIcon, outlined, panel, text, wrap } from '../ui/uiKit.js';
+import { gpsRoute, strokeRoute } from './gpsRoute.js';
 import { formatCash } from '../core/math.js';
 
 const LABELS = {
@@ -17,6 +18,38 @@ const LABELS = {
 };
 
 const CROP = { x0: 560, y0: 220, x1: 6220, y1: 4660 };
+
+/** Story venues shown on the map: [poi, icon, name, colour]. */
+const LANDMARKS = [
+  ['club', 'note', 'CLUB VOLTAGE', '#ff4fd8'], ['bank', '$', 'HALCYON TRUST', '#ffe14f'], ['hotel', 'H', 'HOTEL CORALIE', '#ff7eb6'],
+  ['warehouse', 'anchor', 'PIER 9', '#ffcf3f'], ['mansion', 'crown', 'GRIEVE ESTATE', '#ff6b6b'], ['hangar', 'plane', 'HANGAR 1', '#9be564'],
+];
+
+/** The active job (or the next one) with its stage bar and the route length. */
+function drawJobCard(ctx, game, x, y, w) {
+  const s = game.missions;
+  const m = s.active ?? nextMission(game);
+  if (!m) return;
+  const prog = s.active ? stageProgress(game) : null;
+  const route = gpsRoute(game);
+  panel(ctx, x, y, w, 150, ACCENT.coral, 0.85);
+  outlined(ctx, s.active ? 'CURRENT JOB' : 'NEXT JOB', x + 18, y + 28, ACCENT.coral, 15, 900, 'left', DISPLAY);
+  text(ctx, `CH ${m.chapter}`, x + w - 16, y + 27, 'rgba(244,241,222,0.6)', 12, 900, 'right');
+  outlined(ctx, m.title.toUpperCase(), x + 18, y + 54, '#ffffff', 18, 900);
+  ctx.font = `700 13px ${FONT}`;
+  const obj = s.active ? s.objective || m.blurb : `See ${CAST[m.giver].name}`;
+  wrap(ctx, obj, w - 36).slice(0, 2).forEach((ln, i) => text(ctx, ln, x + 18, y + 76 + i * 17, 'rgba(244,241,222,0.85)', 13, 700));
+  if (prog) {
+    const n = prog.total;
+    const bw = w - 36;
+    for (let i = 0; i < n; i += 1) {
+      ctx.fillStyle = i < prog.stage - 1 ? ACCENT.sun : i === prog.stage - 1 ? '#ffffff' : 'rgba(255,255,255,0.15)';
+      ctx.fillRect(x + 18 + (i * bw) / n, y + 114, bw / n - 4, 8);
+    }
+    text(ctx, `STAGE ${prog.stage}/${n}`, x + 18, y + 140, ACCENT.sun, 12, 900);
+  }
+  if (route) text(ctx, `GPS  ${Math.round(route.length / 9)} m`, x + w - 16, y + 140, route.color, 13, 900, 'right');
+}
 
 /** Draw the chapter list panel (also used by the results screen). */
 export function drawChapterList(ctx, game, x, y, w, highlight = null) {
@@ -37,7 +70,8 @@ export function drawChapterList(ctx, game, x, y, w, highlight = null) {
     ctx.globalAlpha = isDone || isNext ? 1 : 0.45;
     drawPortrait(ctx, m.giver, x + 14, ry + 5, 42);
     outlined(ctx, `${m.chapter}. ${m.title.toUpperCase()}`, x + 66, ry + 22, isDone ? ACCENT.teal : isNext ? ACCENT.sun : '#f4f1de', 15, 800);
-    text(ctx, isDone ? 'Complete' : isNext ? `Next - see ${CAST[m.giver].name}` : 'Locked', x + 66, ry + 41, 'rgba(244,241,222,0.7)', 12, 600);
+    const live = game.missions.active && game.missions.active.id === m.id;
+    text(ctx, isDone ? 'Complete' : live ? 'In progress' : isNext ? `Next - see ${CAST[m.giver].name}` : 'Locked', x + 66, ry + 41, live ? ACCENT.coral : 'rgba(244,241,222,0.7)', 12, live ? 800 : 600);
     if (isDone) text(ctx, formatCash(m.payout), x + w - 16, ry + 22, ACCENT.cash, 13, 800, 'right');
     ctx.globalAlpha = 1;
   });
@@ -117,6 +151,23 @@ export function drawCityMap(ctx, game, w, h, translucent = false) {
       outlined(ctx, mk.label.toUpperCase(), p.x, p.y - 17, mk.color, 12, 800, 'center');
     } else drawIcon(ctx, '!', p.x, p.y, 10, mk.color);
   }
+  // Story venues: named landmark icons.
+  for (const [key, icon, label, color] of LANDMARKS) {
+    const poi = city.pois[key];
+    if (!poi) continue;
+    const p = toMap(poi.x, poi.y);
+    drawIcon(ctx, icon, p.x, p.y, 10, color);
+    outlined(ctx, label, p.x, p.y + 23, color, 11, 900, 'center');
+  }
+  // The GPS route to the current objective (or the next contact).
+  const route = gpsRoute(game);
+  if (route) {
+    ctx.save();
+    ctx.translate(mx - CROP.x0 * s, my - CROP.y0 * s);
+    ctx.scale(s, s);
+    strokeRoute(ctx, route, 4.5 / s);
+    ctx.restore();
+  }
   for (const v of game.vehicles) {
     if (v.model !== 'police' || v.wrecked || v.ai === 'parked') continue;
     const p = toMap(v.x, v.y);
@@ -157,6 +208,7 @@ export function drawCityMap(ctx, game, w, h, translucent = false) {
   ctx.restore();
   // Chapters (left) and legend (right).
   drawChapterList(ctx, game, 20, 86, leftW - 10);
+  if (h - (86 + 52 + MISSIONS.length * 58) > 170) drawJobCard(ctx, game, 20, 86 + 52 + MISSIONS.length * 58 + 12, leftW - 10);
   const lx = w - rightW - 18;
   const legend = [
     ['you', '#ffffff', 'You are here'], ['P', ACCENT.sun, 'Story contact'], ['!', ACCENT.sun, 'Job objective'], ['house', '#5ad8ff', 'Safehouse'],

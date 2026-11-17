@@ -22,7 +22,7 @@ game.vehicles.push(car);
 game.player.vehicle = car;
 setMinimumWanted(game, 4);
 // The sign atlas lives on a canvas in the browser; here its two built-in entries are enough.
-const atlas = { entries: new Map([['HKPD', { u0: 0, u1: 0.25, v0: 0, v1: 0.03, aspect: 6 }], ['H', { u0: 0.25, u1: 0.3, v0: 0, v1: 0.03, aspect: 1 }]]) };
+const atlas = { entries: new Map([['HKPD', { u0: 0, u1: 0.25, v0: 0, v1: 0.03, aspect: 6 }], ['H', { u0: 0.25, u1: 0.3, v0: 0, v1: 0.03, aspect: 1 }], ['KEYCAB', { u0: 0.3, u1: 0.55, v0: 0, v1: 0.03, aspect: 6 }]]) };
 const city3d = {
   lamps: game.city.lamps.map((l) => ({ x: l.x + l.ax * 17, y: 59, z: l.y + l.ay * 17 })),
   signs: game.city.buildings.filter((b) => b.sign).map((b) => ({ x: (b.x0 + b.x1) / 2, y: 60, z: (b.y0 + b.y1) / 2, color: [255, 80, 200], r: 180, k: 1 })),

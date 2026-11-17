@@ -72,6 +72,8 @@ export function gatherLights(set, scene, focus) {
       add(p.x, big ? 20 : 14, p.y, big ? 380 : 120, 6 * a, 4.4 * a, 2.4 * a, big ? 900 : 500);
     } else if (p.size > 7) add(p.x, 12, p.y, 130, 2.4 * a, 1.1 * a, 0.35 * a, 150);
   }
+  // Extra lights the view asks for (a fill light riding with the camera for backlit shots).
+  for (const l of scene.extra ?? []) add(l.x, l.y, l.z, l.r, l.cr, l.cg, l.cb, 5000);
   const h = game.heli;
   if (h && scene.heliPose) {
     const f = scene.heliPose;

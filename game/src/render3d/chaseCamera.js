@@ -18,6 +18,15 @@ export function createCam3d() {
 
 const fwdOf = (a) => [Math.cos(a), Math.sin(a)];
 
+/** Roof height of each vehicle model (the chase camera rides just above it). */
+const ROOF_Y = { coupe: 11.8, sedan: 13.6, taxi: 13.6, police: 13.6, muscle: 12.8, van: 21, pickup: 16, bike: 14 };
+
+/**
+ * Within this distance of the eye the lit shader dithers geometry away (palms, poles, passing
+ * cars), so nothing ever slices through the near plane in front of the camera.
+ */
+export const NEAR_FADE = 18;
+
 /** Pull the eye in so no building stands between the subject and the camera. */
 function keepClear(city, sx, sz, ex, ey, ez) {
   const dx = ex - sx;
@@ -79,13 +88,20 @@ export function updateCam3d(cam, game, view, dt) {
     yawT += cam.swing + (view.yawOffset ?? 0);
     cam.yaw += wrapAngle(yawT - cam.yaw) * k(3.4);
     const speedK = clamp(sp / 600, 0, 1);
-    cam.dist = lerp(cam.dist, (74 + speedK * 34) * (view.distK ?? 1), k(2));
-    cam.height = lerp(cam.height, (27 + speedK * 6) * (view.heightK ?? 1), k(2));
-    cam.fov = lerp(cam.fov, view.fov ?? 58 + speedK * 16, k(2));
+    // Low and close: the eye rides just above the roof, the car sits in the lower middle of the
+    // frame and fills about a quarter of its width, pulling back a little as the speed builds.
+    const roof = ROOF_Y[v.model] ?? 13;
+    cam.dist = lerp(cam.dist, (58 + speedK * 26) * (view.distK ?? 1), k(2));
+    cam.height = lerp(cam.height, (roof + 6.5 + speedK * 3) * (view.heightK ?? 1), k(2));
+    cam.fov = lerp(cam.fov, view.fov ?? 60 + speedK * 16, k(2));
     const [fx, fz] = fwdOf(cam.yaw);
-    const ahead = 26 + speedK * 30;
-    target = [v.x + fx * ahead, 9 + (view.lookUp ?? 0), v.y + fz * ahead];
+    const ahead = 22 + speedK * 26;
+    target = [v.x + fx * ahead, roof * 0.55 + (view.lookUp ?? 0), v.y + fz * ahead];
     eye = [v.x - fx * cam.dist, cam.height, v.y - fz * cam.dist];
+    if (view.sideOffset) {
+      eye[0] += -fz * view.sideOffset;
+      eye[2] += fx * view.sideOffset;
+    }
     eye = keepClear(game.city, v.x, v.y, eye[0], eye[1], eye[2]);
   } else {
     const aim = view.aim ?? { x: pl.x + Math.cos(pl.angle) * 100, y: pl.y + Math.sin(pl.angle) * 100 };
@@ -97,11 +113,12 @@ export function updateCam3d(cam, game, view, dt) {
     const [fx, fz] = fwdOf(cam.yaw);
     const rx = -fz;
     const rz = fx;
-    const dist = 54 * (view.distK ?? 1);
-    const side = 15 * (view.sideK ?? 1);
-    const hgt = 28 * (view.heightK ?? 1);
+    // Over the right shoulder, close enough that Dez stands big in the left-middle of the frame.
+    const dist = 44 * (view.distK ?? 1);
+    const side = 13 * (view.sideK ?? 1);
+    const hgt = 24 * (view.heightK ?? 1);
     const wantEye = [pl.x - fx * dist + rx * side, hgt, pl.y - fz * dist + rz * side];
-    const wantT = [pl.x + fx * 70 + rx * 7, 15 + (view.lookUp ?? 0), pl.y + fz * 70 + rz * 7];
+    const wantT = [pl.x + fx * 70 + rx * 7, 14 + (view.lookUp ?? 0), pl.y + fz * 70 + rz * 7];
     const e = keepClear(game.city, pl.x + rx * 4, pl.y + rz * 4, wantEye[0], wantEye[1], wantEye[2]);
     const kk = k(9);
     eye = [lerp(cam.x, e[0], kk), lerp(cam.y, e[1], kk), lerp(cam.z, e[2], kk)];

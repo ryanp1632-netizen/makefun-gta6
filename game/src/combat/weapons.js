@@ -7,13 +7,48 @@ import { emitBlood, emitMuzzle, emitSparks, emitTracer } from '../render/particl
 import { damageVehicle } from '../vehicles/drivingPhysics.js';
 
 export const WEAPONS = {
+  fists: { id: 'fists', name: 'Fists', dmg: 22, rate: 0.42, mag: 0, reload: 0, spread: 0, range: 26, pellets: 1, auto: false, price: 0, ammoPrice: 0, ammoPack: 0, level: 1, slot: 0, melee: true },
   pistol: { id: 'pistol', name: 'Kestrel 9', dmg: 24, rate: 0.24, mag: 12, reload: 1.1, spread: 0.035, range: 560, pellets: 1, auto: false, price: 0, ammoPrice: 120, ammoPack: 36, level: 1, slot: 1 },
   smg: { id: 'smg', name: 'Wasp SMG', dmg: 13, rate: 0.075, mag: 32, reload: 1.6, spread: 0.085, range: 470, pellets: 1, auto: true, price: 3500, ammoPrice: 240, ammoPack: 96, level: 2, slot: 2 },
   shotgun: { id: 'shotgun', name: 'Breaker 12', dmg: 15, rate: 0.72, mag: 6, reload: 2.0, spread: 0.24, range: 300, pellets: 7, auto: false, price: 5200, ammoPrice: 200, ammoPack: 18, level: 3, slot: 3 },
   rifle: { id: 'rifle', name: 'Marlin AR', dmg: 30, rate: 0.11, mag: 30, reload: 1.8, spread: 0.03, range: 740, pellets: 1, auto: true, price: 9500, ammoPrice: 320, ammoPack: 90, level: 4, slot: 4 },
 };
 
-export const WEAPON_ORDER = ['pistol', 'smg', 'shotgun', 'rifle'];
+export const WEAPON_ORDER = ['fists', 'pistol', 'smg', 'shotgun', 'rifle'];
+
+/**
+ * A punch: the nearest person within reach and roughly in front takes the hit and is shoved
+ * back. Quiet (no gunshot event), but a witnessed assault still raises the heat.
+ */
+function punch(game, team, x, y, angle, shooter) {
+  const w = WEAPONS.fists;
+  let best = null;
+  let bestD = w.range;
+  for (const ped of game.peds) {
+    if (ped.dead || ped === shooter) continue;
+    const dx = ped.x - x;
+    const dy = ped.y - y;
+    const d = Math.hypot(dx, dy);
+    if (d > bestD || Math.abs(wrapAngle(Math.atan2(dy, dx) - angle)) > 0.9) continue;
+    best = ped;
+    bestD = d;
+  }
+  if (team === 'player') game.stats.shots += 1;
+  game.events.push({ type: 'punch', x, y, hit: !!best });
+  if (!best) return;
+  const nx = Math.cos(angle);
+  const ny = Math.sin(angle);
+  best.x += nx * 6;
+  best.y += ny * 6;
+  if (team === 'player') game.stats.hits += 1;
+  damagePerson(game, best, w.dmg, team, nx, ny);
+  if (!best.dead && best.team === 'civ') {
+    best.state = 'flee';
+    best.fleeT = 6;
+    best.fleeX = x;
+    best.fleeY = y;
+  }
+}
 
 /** Hurt a person; returns true when that was the fatal hit. */
 export function damagePerson(game, target, amount, source, nx = 0, ny = 0) {
@@ -51,6 +86,10 @@ export function damagePerson(game, target, amount, source, nx = 0, ny = 0) {
  */
 export function fireShot(game, team, weaponId, x, y, angle, accuracy = 1, shooter = null) {
   const w = WEAPONS[weaponId];
+  if (w.melee) {
+    punch(game, team, x, y, angle, shooter);
+    return;
+  }
   const rng = game.rng;
   const mx = x + Math.cos(angle) * 12;
   const my = y + Math.sin(angle) * 12;
@@ -115,6 +154,12 @@ export function fireShot(game, team, weaponId, x, y, angle, accuracy = 1, shoote
 export function tryFire(game, holder, dt, triggerHeld, triggerPressed) {
   const w = WEAPONS[holder.weapon];
   if (!w) return false;
+  if (w.melee) {
+    if (holder.fireT > 0) holder.fireT -= dt;
+    if (!triggerPressed || holder.fireT > 0) return false;
+    holder.fireT = w.rate;
+    return true;
+  }
   const slot = holder.ammo[holder.weapon];
   if (holder.reloadT > 0) {
     holder.reloadT -= dt;
@@ -144,6 +189,7 @@ export function tryFire(game, holder, dt, triggerHeld, triggerPressed) {
 export function startReload(game, holder) {
   const w = WEAPONS[holder.weapon];
   const slot = holder.ammo[holder.weapon];
+  if (w.melee || !slot) return;
   if (holder.reloadT > 0 || slot.mag >= w.mag || slot.reserve <= 0) return;
   holder.reloadT = w.reload;
   game.events.push({ type: 'reload', holder });

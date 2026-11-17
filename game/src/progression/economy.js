@@ -62,7 +62,7 @@ export function shopItems(game) {
   for (const w of Object.values(WEAPONS)) {
     const owned = game.player.owned[w.id];
     if (!owned && w.price > 0) items.push({ kind: 'weapon', id: w.id, label: w.name, price: w.price, locked: level < w.level, need: w.level });
-    if (owned) items.push({ kind: 'ammo', id: w.id, label: `${w.name} ammo x${w.ammoPack}`, price: w.ammoPrice, locked: false });
+    if (owned && !w.melee) items.push({ kind: 'ammo', id: w.id, label: `${w.name} ammo x${w.ammoPack}`, price: w.ammoPrice, locked: false });
   }
   items.push({ kind: 'armor', id: 'armor', label: 'Kevlar vest (100 armour)', price: 900, locked: level < 2, need: 2 });
   items.push({ kind: 'health', id: 'health', label: 'Field medkit (full health)', price: 300, locked: false });

@@ -1,182 +1,366 @@
-// The in-game HUD: radar with health, armour and respect; clock, cash, wanted stars and the
-// escape meter; weapon and ammo; the mission objective panel with timer; the speedometer and
-// radio station when driving; the district banner, notices, prompts and the dialogue box.
+// The in-game HUD, laid out so every corner reads at a glance even in a small thumbnail:
+//   top left      the story panel (chapter, objective in big type, STAGE n/m bar, NEXT line,
+//                 timer) and, during a chase, the HKPD response list (call signs, distance, state);
+//   top right     clock, cash, wanted stars with IN SIGHT / EVADING and the weapon slot bar;
+//   bottom left   the radar, the district name, health, armour and respect bars;
+//   bottom right  (driving) radio station and track, vehicle name and condition, big speed;
+//   bottom centre the dialogue box with the speaker's portrait, prompts above it;
+//   top centre    notices, and the district banner for a moment on arrival.
 import { drawMinimap } from './minimap.js';
 import { drawPortrait } from '../ui/portraits.js';
 import { CAST } from '../missions/storyMissions.js';
+import { stageProgress } from '../missions/missionRunner.js';
+import { describeResponse } from '../police/policeDispatch.js';
 import { DISTRICTS } from '../world/districts.js';
-import { formatClock } from '../world/dayNight.js';
-import { WEAPONS } from '../combat/weapons.js';
+import { WEAPONS, WEAPON_ORDER } from '../combat/weapons.js';
 import { toKmh } from '../vehicles/vehicleModels.js';
 import { forwardSpeed } from '../vehicles/drivingPhysics.js';
-import { formatCash } from '../core/math.js';
-import { ACCENT, DISPLAY, FONT, drawWeaponIcon, outlined, panel, roundRect, starPath, text, wrap } from '../ui/uiKit.js';
+import { respectLevel } from '../progression/economy.js';
+import { formatCash, formatClock } from '../core/math.js';
+import { ACCENT, DISPLAY, FONT, chip, drawWeaponIcon, meter, outlined, panel, roundRect, starPath, text, wrap } from '../ui/uiKit.js';
 
-function drawStars(ctx, game, xRight, y) {
-  const w = game.wanted;
-  const t = game.t;
+const INK = '#f4f1de';
+const DIM = 'rgba(244,241,222,0.62)';
+const STATE_COLORS = { RAMMING: '#ff4d5e', PURSUIT: '#ff8c42', ROADBLOCK: '#ffd166', SPOTLIGHT: '#fff3b0', SWEEPING: '#9fd8ff', SEARCHING: '#7f8aa8', 'ON FOOT': '#5ab4ff', ENGAGING: '#ff6b7a' };
+
+function timerText(t) {
+  const v = Math.max(0, t);
+  return `${Math.floor(v / 60)}:${String(Math.floor(v % 60)).padStart(2, '0')}`;
+}
+
+/** Top left: the story job (or race / taxi shift) with stage progress, next step and timer. */
+function drawStoryPanel(ctx, game, x, y) {
+  const s = game.missions;
+  const race = s.race && !s.race.story ? s.race : null;
+  const active = s.active;
+  const taxi = game.activity && game.activity.kind === 'taxi' ? game.activity : null;
+  if (!active && !race && !taxi) return y;
+  const W = 396;
+  let tag;
+  let title;
+  let objective;
+  let status = '';
+  let timer = null;
+  let prog = null;
+  let next = '';
+  let color = ACCENT.sun;
+  if (active) {
+    tag = `CH ${active.chapter}`;
+    title = active.title.toUpperCase();
+    objective = s.objective || active.blurb;
+    status = s.progress;
+    timer = s.timer;
+    prog = stageProgress(game);
+    next = prog ? prog.next : '';
+  } else if (race) {
+    tag = 'RACE';
+    title = race.name.toUpperCase();
+    objective = race.started ? `Checkpoint ${race.next} / ${race.points.length - 1}` : 'Line up at the start';
+    status = race.started ? `Position ${race.place ?? 1} / ${race.racers.length + 1}` : '';
+    prog = { stage: Math.max(1, race.next), total: race.points.length - 1 };
+    color = ACCENT.pink;
+  } else {
+    tag = 'TAXI';
+    title = `KEYCAB SHIFT  ·  FARE ${taxi.fares + 1}`;
+    objective = taxi.stage === 'pickup' ? 'Pick up the fare at the yellow marker' : 'Drop the fare off before the meter runs out';
+    timer = taxi.stage === 'dropoff' ? taxi.timer : null;
+    prog = { stage: taxi.stage === 'pickup' ? 1 : 2, total: 2 };
+    next = taxi.stage === 'pickup' ? 'Drive the fare to the drop-off' : 'Collect the fare';
+  }
+  ctx.font = `800 21px ${FONT}`;
+  const lines = wrap(ctx, objective, W - 40).slice(0, 2);
+  const h = 54 + lines.length * 26 + (prog ? 30 : 0) + (next ? 24 : 0) + (status ? 22 : 0) + 6;
+  panel(ctx, x, y, W, h, color, 0.8);
+  const tw = chip(ctx, tag, x + 16, y + 13, color, '#1a1030', 13, 22);
+  outlined(ctx, title, x + 24 + tw, y + 31, color, 17, 900, 'left', FONT);
+  if (timer !== null) {
+    const urgent = timer < 20;
+    const tx = x + W - 14;
+    roundRect(ctx, tx - 84, y + 9, 84, 30, 8);
+    ctx.fillStyle = urgent ? 'rgba(255,60,80,0.9)' : 'rgba(255,209,102,0.16)';
+    ctx.fill();
+    // A little stopwatch.
+    ctx.strokeStyle = urgent ? '#ffffff' : ACCENT.sun;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(tx - 68, y + 25, 7, 0, Math.PI * 2);
+    ctx.moveTo(tx - 68, y + 25);
+    ctx.lineTo(tx - 68, y + 20);
+    ctx.stroke();
+    outlined(ctx, timerText(timer), tx - 8, y + 33, '#ffffff', 21, 900, 'right', FONT);
+  }
+  let yy = y + 50;
+  lines.forEach((ln) => {
+    yy += 26;
+    outlined(ctx, ln, x + 18, yy - 4, '#ffffff', 21, 800, 'left', FONT, 'rgba(10,6,24,0.6)');
+  });
+  if (status) {
+    yy += 22;
+    text(ctx, status, x + 18, yy - 4, ACCENT.teal, 15, 800);
+  }
+  if (prog) {
+    yy += 10;
+    text(ctx, `STAGE ${prog.stage}/${prog.total}`, x + 18, yy + 13, INK, 13, 900);
+    const bx = x + 108;
+    const bw = W - 126;
+    const n = Math.max(1, prog.total);
+    const gap = 4;
+    const sw = (bw - gap * (n - 1)) / n;
+    for (let i = 0; i < n; i += 1) {
+      roundRect(ctx, bx + i * (sw + gap), yy + 3, sw, 10, 3);
+      const done = i < prog.stage - 1;
+      const cur = i === prog.stage - 1;
+      ctx.fillStyle = done ? color : cur ? (Math.floor(game.t * 3) % 2 ? '#ffffff' : color) : 'rgba(255,255,255,0.14)';
+      ctx.fill();
+    }
+    yy += 20;
+  }
+  if (next) {
+    yy += 24;
+    text(ctx, 'NEXT', x + 18, yy - 6, color, 13, 900);
+    ctx.font = `700 15px ${FONT}`;
+    let nx = next;
+    while (ctx.measureText(nx).width > W - 80 && nx.length > 4) nx = `${nx.slice(0, -2)}…`;
+    text(ctx, nx, x + 62, yy - 6, DIM, 15, 700);
+  }
+  return y + h;
+}
+
+function unitIcon(ctx, kind, x, y, color, t) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  if (kind === 'air') {
+    ctx.ellipse(x, y, 7, 3.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(x - 11, y - 6, 22, 1.6);
+    ctx.fillRect(x - 12, y - 1, 6, 1.6);
+  } else if (kind === 'foot') {
+    ctx.arc(x, y - 4, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(x - 3, y - 1, 6, 8);
+  } else {
+    roundRect(ctx, x - 9, y - 3, 18, 7, 2);
+    ctx.fill();
+    ctx.fillRect(x - 5, y - 6, 10, 4);
+    ctx.fillStyle = Math.floor(t * 4 + x) % 2 ? '#ff3b5c' : '#3b7bff';
+    ctx.fillRect(x - 3, y - 8, 6, 2);
+  }
+}
+
+/** Under the story panel during a chase: every unit after you, nearest first. */
+function drawResponsePanel(ctx, game, x, y) {
+  const units = describeResponse(game);
+  if (!units.length) return y;
+  const rows = units.slice(0, 5);
+  const W = 396;
+  const h = 40 + rows.length * 27 + (units.length > rows.length ? 18 : 0);
+  panel(ctx, x, y, W, h, '#3b7bff', 0.8);
+  const flash = Math.floor(game.t * 4) % 2 === 0;
+  ctx.fillStyle = flash ? '#ff3b5c' : '#3b7bff';
+  ctx.beginPath();
+  ctx.arc(x + 24, y + 20, 5, 0, Math.PI * 2);
+  ctx.fill();
+  outlined(ctx, 'HKPD RESPONSE', x + 36, y + 26, INK, 15, 900);
+  text(ctx, `${units.length} UNIT${units.length > 1 ? 'S' : ''}  ·  CODE ${game.wanted.level}`, x + W - 16, y + 26, DIM, 13, 800, 'right');
+  rows.forEach((u, i) => {
+    const ry = y + 40 + i * 27;
+    if (i % 2 === 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.04)';
+      ctx.fillRect(x + 10, ry, W - 20, 25);
+    }
+    unitIcon(ctx, u.kind, x + 28, ry + 13, u.kind === 'air' ? '#9fd8ff' : '#dfe6ff', game.t + i * 0.5);
+    text(ctx, u.sign, x + 48, ry + 18, '#ffffff', 15, 800);
+    text(ctx, `${Math.round(u.d / 9)} m`, x + 222, ry + 18, DIM, 14, 700, 'right');
+    const c = STATE_COLORS[u.state] ?? '#9aa3ad';
+    ctx.font = `900 12px ${FONT}`;
+    const cw = ctx.measureText(u.state).width + 18;
+    chip(ctx, u.state, x + W - 16 - cw, ry + 3, c, '#120c24', 12, 19);
+  });
+  if (units.length > rows.length) text(ctx, `+${units.length - rows.length} more units in the search zone`, x + 18, y + h - 8, DIM, 12, 700);
+  return y + h;
+}
+
+/** Top right: clock, cash, wanted stars and their state, the weapon slot bar. */
+function drawStatusCorner(ctx, game, w) {
+  const right = w - 22;
+  const pl = game.player;
+  outlined(ctx, formatClock(game.clock), right, 38, INK, 24, 900, 'right');
+  ctx.font = `900 24px ${FONT}`;
+  const cw = ctx.measureText(formatClock(game.clock)).width;
+  text(ctx, `DAY ${game.clock.day}`, right - cw - 12, 37, DIM, 13, 800, 'right');
+  outlined(ctx, formatCash(game.economy.cash), right, 82, ACCENT.cash, 38, 900, 'right', FONT);
+  // Wanted stars and the state tag.
+  const wl = game.wanted;
   for (let i = 0; i < 5; i += 1) {
-    const x = xRight - (4 - i) * 30 - 13;
-    const on = i < w.level;
-    const flashing = on && (w.flashT > 0 || !w.seen) && Math.floor(t * 4) % 2 === 0;
-    starPath(ctx, x, y, 13);
-    ctx.fillStyle = on ? (flashing ? '#fff3b0' : '#ffd166') : 'rgba(255,255,255,0.12)';
+    const x = right - (4 - i) * 34 - 15;
+    const on = i < wl.level;
+    const flashing = on && (wl.flashT > 0 || !wl.seen) && Math.floor(game.t * 4) % 2 === 0;
+    starPath(ctx, x, 114, 15);
+    ctx.fillStyle = on ? (flashing ? '#fff3b0' : '#ffd166') : 'rgba(255,255,255,0.13)';
     ctx.fill();
     ctx.lineWidth = 2.5;
     ctx.strokeStyle = 'rgba(10,6,24,0.9)';
     ctx.stroke();
   }
-  if (w.level > 0) {
-    const label = w.seen ? 'SPOTTED' : 'EVADING';
-    const k = w.seen ? 0 : Math.min(1, w.evadeT / Math.max(1, w.evadeNeed));
-    outlined(ctx, label, xRight, y + 32, w.seen ? '#ff6b7a' : '#9fd8ff', 12, 800, 'right');
-    ctx.fillStyle = 'rgba(255,255,255,0.15)';
-    ctx.fillRect(xRight - 90, y + 37, 90, 4);
-    ctx.fillStyle = '#9fd8ff';
-    ctx.fillRect(xRight - 90, y + 37, 90 * k, 4);
+  if (wl.level > 0) {
+    const label = wl.seen ? 'IN SIGHT' : 'EVADING';
+    ctx.font = `900 12px ${FONT}`;
+    const tw = ctx.measureText(label).width + 18;
+    chip(ctx, label, right - tw, 136, wl.seen ? '#ff4d5e' : '#5ab4ff', '#120c24', 12, 20);
+    const k = wl.seen ? 1 : Math.min(1, wl.evadeT / Math.max(1, wl.evadeNeed));
+    text(ctx, wl.seen ? 'search zone follows you' : `lose them  ${Math.round(k * 100)}%`, right - tw - 10, 151, DIM, 12, 700, 'right');
+    if (!wl.seen) meter(ctx, right - 160, 160, 160, 5, k, '#5ab4ff');
   }
+  // Weapon slot bar: every slot, ammo under each, the current one raised and lit.
+  const slotW = 62;
+  const gap = 6;
+  const n = WEAPON_ORDER.length;
+  const x0 = right - n * slotW - (n - 1) * gap;
+  const y0 = 172;
+  WEAPON_ORDER.forEach((id, i) => {
+    const wpn = WEAPONS[id];
+    const x = x0 + i * (slotW + gap);
+    const cur = pl.weapon === id;
+    const owned = !!pl.owned[id];
+    const yy = cur ? y0 - 4 : y0;
+    roundRect(ctx, x, yy, slotW, 58, 8);
+    ctx.fillStyle = cur ? 'rgba(255,107,90,0.92)' : 'rgba(18,12,36,0.78)';
+    ctx.fill();
+    ctx.strokeStyle = cur ? '#ffffff' : 'rgba(255,255,255,0.14)';
+    ctx.lineWidth = cur ? 2 : 1;
+    ctx.stroke();
+    text(ctx, String(wpn.slot), x + 7, yy + 14, cur ? '#1a1030' : DIM, 11, 900);
+    ctx.save();
+    ctx.globalAlpha = owned ? 1 : 0.25;
+    drawWeaponIcon(ctx, id, x + 9, yy + 28, 44, cur ? '#1a1030' : INK);
+    ctx.restore();
+    const slot = pl.ammo[id];
+    const ammo = wpn.melee ? '∞' : owned ? (cur && pl.reloadT > 0 ? 'RELOAD' : `${slot.mag}/${slot.reserve}`) : 'LOCKED';
+    text(ctx, ammo, x + slotW / 2, yy + 52, cur ? '#1a1030' : owned ? INK : 'rgba(244,241,222,0.35)', ammo.length > 6 ? 10 : 12, 900, 'center');
+  });
+  const wn = WEAPONS[pl.weapon];
+  text(ctx, wn.name.toUpperCase(), right, y0 + 76, INK, 13, 900, 'right');
 }
 
-function drawWeaponPanel(ctx, game, x, y) {
+/** Bottom left: the district under the radar, health, armour and respect bars. */
+function drawVitals(ctx, game, cx, h) {
   const pl = game.player;
-  const w = WEAPONS[pl.weapon];
-  const slot = pl.ammo[pl.weapon];
-  panel(ctx, x, y, 210, 62, ACCENT.coral);
-  drawWeaponIcon(ctx, pl.weapon, x + 18, y + 30, 70, '#f4f1de');
-  outlined(ctx, w.name.toUpperCase(), x + 198, y + 22, '#f4f1de', 13, 700, 'right');
-  const reloading = pl.reloadT > 0;
-  outlined(ctx, reloading ? 'RELOAD' : String(slot.mag), x + 150, y + 51, reloading ? ACCENT.sun : '#ffffff', reloading ? 18 : 26, 800, 'right');
-  outlined(ctx, `/ ${slot.reserve}`, x + 198, y + 51, 'rgba(244,241,222,0.7)', 15, 700, 'right');
+  const d = DISTRICTS[game.district] ?? null;
+  if (d) {
+    ctx.font = `900 13px ${FONT}`;
+    const label = d.name.toUpperCase();
+    const tw = ctx.measureText(label).width + 26;
+    roundRect(ctx, cx - tw / 2, h - 90, tw, 22, 11);
+    ctx.fillStyle = 'rgba(18,12,36,0.92)';
+    ctx.fill();
+    ctx.strokeStyle = d.accent;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    text(ctx, label, cx, h - 74, d.accent, 13, 900, 'center');
+  }
+  const x = 16;
+  const W = 236;
+  panel(ctx, x, h - 62, W, 52, null, 0.8);
+  const hp = Math.max(0, pl.hp) / 100;
+  const low = hp < 0.3 && Math.floor(game.t * 4) % 2;
+  // Health: a cross; armour: a shield.
+  ctx.fillStyle = low ? '#ff4d4d' : '#5cf08a';
+  ctx.fillRect(x + 12, h - 51, 10, 3);
+  ctx.fillRect(x + 15.5, h - 54.5, 3, 10);
+  meter(ctx, x + 28, h - 54, 84, 9, hp, low ? '#ff4d4d' : '#5cf08a');
+  ctx.fillStyle = '#5ab4ff';
+  ctx.beginPath();
+  ctx.moveTo(x + 124, h - 55);
+  ctx.lineTo(x + 132, h - 55);
+  ctx.lineTo(x + 132, h - 50);
+  ctx.lineTo(x + 128, h - 45);
+  ctx.lineTo(x + 124, h - 50);
+  ctx.closePath();
+  ctx.fill();
+  meter(ctx, x + 138, h - 54, 86, 9, pl.armor / 100, '#5ab4ff');
+  const rl = respectLevel(game.economy.xp);
+  text(ctx, `RESPECT`, x + 12, h - 22, ACCENT.sun, 12, 900);
+  ctx.font = `900 16px ${DISPLAY}`;
+  outlined(ctx, String(rl.level), x + 76, h - 21, ACCENT.sun, 17, 900, 'left', DISPLAY);
+  meter(ctx, x + 96, h - 31, 128, 9, rl.ratio, ACCENT.sun);
+  text(ctx, `${rl.into} / ${rl.need}`, x + 224, h - 14, DIM, 10, 800, 'right');
 }
 
-function drawObjective(ctx, game, x, y) {
-  const s = game.missions;
-  const race = s.race && !s.race.story ? s.race : null;
-  const active = s.active;
-  const taxi = game.activity && game.activity.kind === 'taxi' ? game.activity : null;
-  if (!active && !race && !taxi) return;
-  let title;
-  let objective;
-  let progress = '';
-  let timer = null;
-  let color = ACCENT.sun;
-  if (active) {
-    title = `CHAPTER ${active.chapter}  ·  ${active.title.toUpperCase()}`;
-    objective = s.objective || active.blurb;
-    progress = s.progress;
-    timer = s.timer;
-  } else if (race) {
-    title = `STREET RACE  ·  ${race.name.toUpperCase()}`;
-    objective = race.started ? `Checkpoint ${race.next} / ${race.points.length - 1}` : 'Line up at the start';
-    progress = race.started ? `Position ${race.place ?? 1} / ${race.racers.length + 1}` : '';
-    color = ACCENT.pink;
-  } else {
-    title = `KEYCAB SHIFT  ·  FARE ${taxi.fares + 1}`;
-    objective = taxi.stage === 'pickup' ? 'Pick up the fare waiting at the yellow marker' : 'Drop the fare off before the meter runs out';
-    timer = taxi.stage === 'dropoff' ? taxi.timer : null;
-  }
-  ctx.font = `600 16px ${FONT}`;
-  const lines = wrap(ctx, objective, 330);
-  const h = 54 + lines.length * 21 + (progress ? 22 : 0);
-  panel(ctx, x, y, 372, h, color);
-  outlined(ctx, title, x + 18, y + 26, color, 14, 800, 'left', FONT);
-  lines.forEach((ln, i) => text(ctx, ln, x + 18, y + 52 + i * 21, '#f4f1de', 16, 600));
-  if (progress) text(ctx, progress, x + 18, y + 52 + lines.length * 21 + 2, ACCENT.teal, 14, 700);
-  if (timer !== null) {
-    const m = Math.floor(Math.max(0, timer) / 60);
-    const sec = Math.floor(Math.max(0, timer) % 60);
-    const urgent = timer < 20;
-    panel(ctx, x + 380, y, 96, 46, urgent ? '#ff4d4d' : ACCENT.sun);
-    outlined(ctx, `${m}:${String(sec).padStart(2, '0')}`, x + 432, y + 33, urgent && Math.floor(game.t * 4) % 2 ? '#ff6b6b' : '#ffffff', 26, 800, 'center', FONT);
-  }
-}
-
-function drawSpeedo(ctx, game, cx, cy, radio) {
+/** Bottom right when driving: radio and track, vehicle and condition, a big speed readout. */
+function drawDriving(ctx, game, w, h, radio) {
   const v = game.player.vehicle;
-  const R = 70;
+  const W = 300;
+  const x = w - W - 18;
+  if (radio) {
+    const ry = h - 236;
+    panel(ctx, x, ry, W, 58, radio.color, 0.82);
+    // A small speaker/note glyph.
+    ctx.fillStyle = radio.color;
+    ctx.beginPath();
+    ctx.arc(x + 24, ry + 36, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(x + 27, ry + 16, 2.5, 20);
+    ctx.fillRect(x + 27, ry + 16, 9, 3);
+    outlined(ctx, radio.name, x + 44, ry + 25, radio.color, 15, 900);
+    if (radio.track) {
+      ctx.font = `700 14px ${FONT}`;
+      let line = `${radio.track.title}  —  ${radio.track.artist}`;
+      while (ctx.measureText(line).width > W - 96 && line.length > 6) line = `${line.slice(0, -2)}…`;
+      text(ctx, line, x + 44, ry + 46, INK, 14, 700);
+    }
+    for (let i = 0; i < 5; i += 1) {
+      const hh = 5 + Math.abs(Math.sin(game.t * (3 + i) + i)) * 18;
+      ctx.fillStyle = radio.color;
+      ctx.fillRect(x + W - 40 + i * 6, ry + 44 - hh, 4, hh);
+    }
+  }
+  const y = h - 170;
+  panel(ctx, x, y, W, 152, ACCENT.coral, 0.82);
   const kmh = Math.abs(toKmh(forwardSpeed(v)));
   const max = toKmh(v.spec.maxSpeed) * 1.1;
-  ctx.save();
-  ctx.fillStyle = 'rgba(10,6,24,0.72)';
-  ctx.beginPath();
-  ctx.arc(cx, cy, R + 8, 0, Math.PI * 2);
+  const health = Math.max(0, v.hp / v.spec.hp);
+  outlined(ctx, v.spec.name.toUpperCase(), x + 18, y + 28, INK, 16, 900);
+  text(ctx, 'CONDITION', x + 18, y + 50, DIM, 11, 900);
+  meter(ctx, x + 92, y + 41, 96, 10, health, health > 0.5 ? '#5cf08a' : health > 0.25 ? ACCENT.sun : '#ff4d4d');
+  text(ctx, `${Math.round(health * 100)}%`, x + 196, y + 50, INK, 12, 900);
+  // The big number.
+  outlined(ctx, String(kmh), x + W - 64, y + 118, '#ffffff', 68, 900, 'right', DISPLAY);
+  text(ctx, 'KM/H', x + W - 58, y + 100, DIM, 13, 900);
+  const reverse = forwardSpeed(v) < -5;
+  roundRect(ctx, x + W - 56, y + 104, 36, 22, 6);
+  ctx.fillStyle = 'rgba(255,209,102,0.18)';
   ctx.fill();
-  const a0 = Math.PI * 0.75;
-  const a1 = Math.PI * 2.25;
-  ctx.lineWidth = 9;
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-  ctx.beginPath();
-  ctx.arc(cx, cy, R - 6, a0, a1);
-  ctx.stroke();
+  text(ctx, reverse ? 'R' : `G${v.gear}`, x + W - 38, y + 121, ACCENT.sun, 14, 900, 'center');
+  // Speed bar with ticks along the bottom.
+  const bx = x + 18;
+  const bw = W - 36;
   const k = Math.min(1, kmh / max);
-  const g = ctx.createLinearGradient(cx - R, cy, cx + R, cy);
+  roundRect(ctx, bx, y + 134, bw, 8, 4);
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  ctx.fill();
+  const g = ctx.createLinearGradient(bx, 0, bx + bw, 0);
   g.addColorStop(0, ACCENT.teal);
   g.addColorStop(0.6, ACCENT.sun);
   g.addColorStop(1, ACCENT.coral);
-  ctx.strokeStyle = g;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R - 6, a0, a0 + (a1 - a0) * k);
-  ctx.stroke();
-  ctx.strokeStyle = 'rgba(244,241,222,0.6)';
-  ctx.lineWidth = 2;
-  for (let i = 0; i <= 10; i += 1) {
-    const a = a0 + ((a1 - a0) * i) / 10;
-    ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(a) * (R - 16), cy + Math.sin(a) * (R - 16));
-    ctx.lineTo(cx + Math.cos(a) * (R - 22), cy + Math.sin(a) * (R - 22));
-    ctx.stroke();
-  }
-  const na = a0 + (a1 - a0) * k;
-  ctx.strokeStyle = '#ff4f6a';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy);
-  ctx.lineTo(cx + Math.cos(na) * (R - 12), cy + Math.sin(na) * (R - 12));
-  ctx.stroke();
-  ctx.fillStyle = '#ff4f6a';
-  ctx.beginPath();
-  ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+  roundRect(ctx, bx, y + 134, Math.max(8, bw * k), 8, 4);
+  ctx.fillStyle = g;
   ctx.fill();
-  outlined(ctx, String(kmh), cx, cy + 32, '#ffffff', 28, 800, 'center');
-  text(ctx, 'KM/H', cx, cy + 46, 'rgba(244,241,222,0.7)', 10, 700, 'center');
-  outlined(ctx, forwardSpeed(v) < -5 ? 'R' : String(v.gear), cx + 34, cy - 14, ACCENT.sun, 16, 800, 'center');
-  ctx.restore();
-  // Vehicle name and condition.
-  const health = Math.max(0, v.hp / v.spec.hp);
-  outlined(ctx, v.spec.name.toUpperCase(), cx, cy - R - 16, '#f4f1de', 13, 800, 'center');
-  ctx.fillStyle = 'rgba(255,255,255,0.15)';
-  ctx.fillRect(cx - 50, cy - R - 10, 100, 4);
-  ctx.fillStyle = health > 0.5 ? '#5cf08a' : health > 0.25 ? ACCENT.sun : '#ff4d4d';
-  ctx.fillRect(cx - 50, cy - R - 10, 100 * health, 4);
-  if (radio) {
-    const w = 220;
-    const x = cx - w / 2 - 40;
-    const y = cy - R - 74;
-    panel(ctx, x, y, w + 40, 40, radio.color);
-    text(ctx, 'RADIO', x + 16, y + 16, 'rgba(244,241,222,0.6)', 10, 800);
-    outlined(ctx, radio.name, x + 16, y + 33, radio.color, 15, 800);
-    // Little equaliser bars.
-    for (let i = 0; i < 5; i += 1) {
-      const hh = 6 + Math.abs(Math.sin(game.t * (3 + i) + i)) * 14;
-      ctx.fillStyle = radio.color;
-      ctx.fillRect(x + w + 10 + i * 5, y + 32 - hh, 3, hh);
-    }
-  }
+  ctx.fillStyle = 'rgba(10,6,24,0.6)';
+  for (let i = 1; i < 10; i += 1) ctx.fillRect(bx + (bw * i) / 10, y + 134, 1.5, 8);
 }
 
-function drawDistrictBanner(ctx, game, w, h) {
+function drawDistrictBanner(ctx, game, w) {
   const t = game.districtT;
-  if (t > 4.5 || !game.district) return;
+  if (t > 2.6 || !game.district) return;
   const d = DISTRICTS[game.district];
-  const a = t < 0.5 ? t / 0.5 : t > 3.5 ? (4.5 - t) : 1;
+  const a = t < 0.35 ? t / 0.35 : t > 2 ? (2.6 - t) / 0.6 : 1;
   ctx.save();
   ctx.globalAlpha = Math.max(0, a);
-  const y = h - (game.dialogue.current ? 230 : 120);
-  const slide = (1 - Math.min(1, t * 2)) * 30;
-  outlined(ctx, d.name.toUpperCase(), w / 2, y + slide, d.accent, 46, 900, 'center', DISPLAY, 'rgba(10,6,24,0.9)');
+  const y = 150 + (1 - Math.min(1, t * 3)) * 14;
+  outlined(ctx, d.name.toUpperCase(), w / 2, y, d.accent, 40, 900, 'center', DISPLAY, 'rgba(10,6,24,0.9)');
   ctx.fillStyle = d.accent;
-  ctx.fillRect(w / 2 - 120, y + 12, 240, 3);
-  outlined(ctx, d.tagline, w / 2, y + 38, '#f4f1de', 18, 600, 'center');
+  ctx.fillRect(w / 2 - 110, y + 10, 220, 3);
+  outlined(ctx, d.tagline, w / 2, y + 34, INK, 16, 700, 'center');
   ctx.restore();
 }
 
@@ -184,31 +368,35 @@ function drawDialogue(ctx, game, w, h) {
   const d = game.dialogue.current;
   if (!d) return;
   const cast = CAST[d.who];
-  const bw = Math.min(720, w - 520);
+  const bw = Math.min(660, w - 620);
   const x = (w - bw) / 2;
-  const y = h - 138;
-  panel(ctx, x, y, bw, 112, cast.color, 0.82);
-  drawPortrait(ctx, d.who, x + 14, y + 12, 88);
-  outlined(ctx, cast.name.toUpperCase(), x + 118, y + 32, cast.color, 17, 800);
-  text(ctx, cast.role, x + 118 + ctx.measureText(cast.name.toUpperCase()).width + 12, y + 32, 'rgba(244,241,222,0.55)', 13, 600);
-  ctx.font = `600 18px ${FONT}`;
+  const y = h - 132;
+  panel(ctx, x, y, bw, 116, cast.color, 0.86);
+  roundRect(ctx, x + 12, y + 12, 92, 92, 10);
+  ctx.fillStyle = cast.color;
+  ctx.fill();
+  drawPortrait(ctx, d.who, x + 14, y + 14, 88);
+  outlined(ctx, cast.name.toUpperCase(), x + 120, y + 32, cast.color, 18, 900);
+  ctx.font = `900 18px ${FONT}`;
+  text(ctx, cast.role.toUpperCase(), x + 128 + ctx.measureText(cast.name.toUpperCase()).width, y + 31, DIM, 12, 800);
+  ctx.font = `700 19px ${FONT}`;
   const shown = d.text.slice(0, Math.floor(game.dialogue.t * 60));
-  wrap(ctx, shown, bw - 140).slice(0, 3).forEach((ln, i) => text(ctx, ln, x + 118, y + 60 + i * 23, '#ffffff', 18, 600));
+  wrap(ctx, shown, bw - 140).slice(0, 3).forEach((ln, i) => text(ctx, ln, x + 120, y + 60 + i * 24, '#ffffff', 19, 700));
 }
 
-function drawNotices(ctx, game, x, y) {
-  let yy = y;
+function drawNotices(ctx, game, w) {
+  let yy = 40;
   for (const n of game.notices) {
     const a = n.t < 0.3 ? n.t / 0.3 : n.t > 4 ? 5 - n.t : 1;
     ctx.save();
     ctx.globalAlpha = Math.max(0, a);
-    outlined(ctx, n.text, x, yy, n.color, n.big ? 20 : 16, 800);
+    outlined(ctx, n.text, w / 2, yy, n.color, n.big ? 22 : 17, 900, 'center');
     ctx.restore();
-    yy += n.big ? 28 : 23;
+    yy += n.big ? 30 : 24;
   }
 }
 
-/** Draw the whole HUD over the world. */
+/** Draw the whole HUD over the world. radio = { name, color, track } while driving. */
 export function drawHud(ctx, game, w, h, radio) {
   const pl = game.player;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -221,18 +409,15 @@ export function drawHud(ctx, game, w, h, radio) {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
   }
-  drawMinimap(ctx, game, 128, h - 128, 96);
-  // Top right: clock, cash, stars, weapon.
-  const right = w - 26;
-  outlined(ctx, `${formatClock(game.clock)}`, right, 40, '#f4f1de', 22, 800, 'right');
-  text(ctx, `DAY ${game.clock.day}`, right - 74, 40, 'rgba(244,241,222,0.6)', 13, 800, 'right');
-  outlined(ctx, formatCash(game.economy.cash), right, 80, ACCENT.cash, 34, 900, 'right', FONT);
-  drawStars(ctx, game, right, 112);
-  drawWeaponPanel(ctx, game, right - 210, 158);
-  drawObjective(ctx, game, 24, 24);
-  if (pl.vehicle) drawSpeedo(ctx, game, w - 110, h - 104, radio);
-  drawDistrictBanner(ctx, game, w, h);
-  drawNotices(ctx, game, 26, h - 300);
+  const mx = 134;
+  drawMinimap(ctx, game, mx, h - 196, 94);
+  drawVitals(ctx, game, mx, h);
+  drawStatusCorner(ctx, game, w);
+  const below = drawStoryPanel(ctx, game, 18, 18);
+  drawResponsePanel(ctx, game, 18, below + 10);
+  if (pl.vehicle) drawDriving(ctx, game, w, h, radio);
+  drawDistrictBanner(ctx, game, w);
+  drawNotices(ctx, game, w);
   if (game.prompt && !game.dialogue.current) {
     ctx.font = `700 17px ${FONT}`;
     const tw = ctx.measureText(game.prompt.text).width + 40;
@@ -242,7 +427,7 @@ export function drawHud(ctx, game, w, h, radio) {
     ctx.fillStyle = ACCENT.sun;
     ctx.fill();
     text(ctx, key, (w - tw) / 2 + 25, h - 59, '#1a1030', 15, 900, 'center');
-    text(ctx, game.prompt.text.slice(1).trim(), (w - tw) / 2 + 44, h - 60, '#f4f1de', 16, 700);
+    text(ctx, game.prompt.text.slice(1).trim(), (w - tw) / 2 + 44, h - 60, INK, 16, 700);
   }
   drawDialogue(ctx, game, w, h);
 }
@@ -258,21 +443,21 @@ export function drawCrosshair(ctx, x, y, spread, reloading, locked = false) {
     ctx.stroke();
   }
   ctx.strokeStyle = reloading ? ACCENT.sun : '#ffffff';
-  ctx.lineWidth = 2;
-  ctx.shadowColor = 'rgba(0,0,0,0.8)';
-  ctx.shadowBlur = 3;
-  const g = 5 + spread;
+  ctx.lineWidth = 2.5;
+  ctx.shadowColor = 'rgba(0,0,0,0.85)';
+  ctx.shadowBlur = 4;
+  const g = 6 + spread;
   ctx.beginPath();
-  ctx.moveTo(x - g - 7, y);
+  ctx.moveTo(x - g - 9, y);
   ctx.lineTo(x - g, y);
   ctx.moveTo(x + g, y);
-  ctx.lineTo(x + g + 7, y);
-  ctx.moveTo(x, y - g - 7);
+  ctx.lineTo(x + g + 9, y);
+  ctx.moveTo(x, y - g - 9);
   ctx.lineTo(x, y - g);
   ctx.moveTo(x, y + g);
-  ctx.lineTo(x, y + g + 7);
+  ctx.lineTo(x, y + g + 9);
   ctx.stroke();
   ctx.fillStyle = ACCENT.coral;
-  ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+  ctx.fillRect(x - 2, y - 2, 4, 4);
   ctx.restore();
 }

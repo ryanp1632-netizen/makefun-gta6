@@ -1,11 +1,12 @@
 // The radar: a pre-rendered map of the whole city (land, districts, roads, buildings) shown in a
-// rotating circle around the player, with the police search zone, unit blips, mission and
-// activity icons, health and armour arcs around the rim and the respect level badge.
+// rotating circle around the player, with the police search zone, unit blips, the helicopter,
+// mission and activity icons and a rim that flashes red and blue during a chase. Health, armour
+// and respect are bars the HUD draws beneath it.
 import { districtIdAt } from '../world/districts.js';
 import { missionMarkers } from '../missions/missionRunner.js';
 import { activityPoints } from '../missions/sideActivities.js';
-import { respectLevel } from '../progression/economy.js';
-import { drawIcon, FONT, DISPLAY } from '../ui/uiKit.js';
+import { drawIcon } from '../ui/uiKit.js';
+import { gpsRoute, strokeRoute } from './gpsRoute.js';
 
 export const MAP_SCALE = 0.15;
 let mapCache = null;
@@ -108,6 +109,7 @@ export function drawMinimap(ctx, game, cx, cy, R) {
   ctx.translate(-focus.x, -focus.y);
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(map, 0, 0, city.width, city.height);
+  strokeRoute(ctx, gpsRoute(game), 6 / m);
   const w = game.wanted;
   if (w.level > 0) {
     const flash = Math.floor(t * 3) % 2 === 0;
@@ -182,49 +184,11 @@ export function drawMinimap(ctx, game, cx, cy, R) {
   ctx.restore();
   // North marker on the rim.
   const n = { x: cx + Math.cos(rot - Math.PI / 2) * R, y: cy + Math.sin(rot - Math.PI / 2) * R };
-  drawIcon(ctx, 'N', n.x, n.y, 8, '#f4f1de');
-  // Health (left) and armour (right) arcs.
-  ctx.lineCap = 'round';
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  drawIcon(ctx, 'N', n.x, n.y, 9, '#f4f1de');
+  // Rim: a thin ring flashing red and blue while the police are after you.
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = game.wanted.level > 0 ? (Math.floor(t * 3) % 2 ? 'rgba(255,60,90,0.9)' : 'rgba(70,130,255,0.9)') : 'rgba(255,255,255,0.22)';
   ctx.beginPath();
-  ctx.arc(cx, cy, R + 4, Math.PI * 0.6, Math.PI * 1.4);
+  ctx.arc(cx, cy, R + 4, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(cx, cy, R + 4, Math.PI * 1.6, Math.PI * 2.4);
-  ctx.stroke();
-  const hp = Math.max(0, pl.hp) / 100;
-  ctx.strokeStyle = hp < 0.3 && Math.floor(t * 4) % 2 ? '#ff4d4d' : '#5cf08a';
-  ctx.beginPath();
-  ctx.arc(cx, cy, R + 4, Math.PI * 1.4 - Math.PI * 0.8 * hp, Math.PI * 1.4);
-  ctx.stroke();
-  if (pl.armor > 0) {
-    ctx.strokeStyle = '#5ab4ff';
-    ctx.beginPath();
-    ctx.arc(cx, cy, R + 4, Math.PI * 1.6, Math.PI * 1.6 + Math.PI * 0.8 * (pl.armor / 100));
-    ctx.stroke();
-  }
-  ctx.lineCap = 'butt';
-  // Respect badge.
-  const rl = respectLevel(game.economy.xp);
-  const bx = cx + R * 0.86;
-  const by = cy - R * 0.86;
-  ctx.fillStyle = '#1a1030';
-  ctx.beginPath();
-  ctx.arc(bx, by, 17, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-  ctx.lineWidth = 4;
-  ctx.stroke();
-  ctx.strokeStyle = '#ffd166';
-  ctx.beginPath();
-  ctx.arc(bx, by, 17, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * rl.ratio);
-  ctx.stroke();
-  ctx.fillStyle = '#ffd166';
-  ctx.font = `900 15px ${DISPLAY}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(String(rl.level), bx, by + 1);
-  ctx.font = `800 9px ${FONT}`;
-  ctx.fillText('RESPECT', bx + 30, by - 12);
 }
