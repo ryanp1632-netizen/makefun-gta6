@@ -1,24 +1,41 @@
-// A working gta6-01 entry (Node 22, standard library only): the game is this directory's
-// game/ folder, plain static files a desktop browser loads offline (game/index.html and its ES
-// modules, no library and no network request), and the program hands it in. It copies game/ and
-// screenshots/ from beside this file to /output and writes /output/dossier.json, the summary the
-// judge reads, with the vendored make.fun library. Only the plumbing, not an open world: Block
-// Dodger, a plain 2D canvas game where a paddle dodges falling blocks and catches coins, with a
-// title screen, score, lives and levels, game over and restart, flat colours and no sound. Build
-// your own open-world crime game in its place (three.js or any library you vendor under game/),
-// put your 3 or 4 PNG or JPEG screenshots in screenshots/ (the first by name is the cover) and run it.
+// HALCYON KEYS, a gta6-01 entry (Node 22, standard library only). The game is game/: plain
+// static files a desktop browser loads offline (game/index.html and its ES modules under
+// game/src/, no library, no build, no network). It is an original top-down open-world crime game
+// set in a sun-soaked island city: a seeded city of causeways, beaches and neon with true 2.5D
+// buildings, a day/night cycle, traffic, pedestrians, five-star police with roadblocks and a
+// helicopter, gunplay, seven story jobs, side activities, synthesized radio and save games, all
+// drawn with Canvas 2D and voiced with WebAudio at runtime.
 //
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
+// This program hands it in: it copies game/ and screenshots/ from beside this file to /output and
+// writes /output/dossier.json, the summary the judge reads, with the vendored make.fun library.
+//
+// Play it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+
+// Sanity check before handing anything in: the game's page and entry module must exist, and
+// screenshots/ must hold 3 or 4 JPEG/PNG images (nothing else), the cover sorting first.
+function refuse(reason: string): never {
+  process.stderr.write(`main.ts: refusing to hand in: ${reason}\n`);
+  process.exit(1);
+}
+for (const required of ['game/index.html', 'game/src/main.js']) {
+  if (!existsSync(join(here, required)) || !statSync(join(here, required)).isFile()) refuse(`${required} is missing`);
+}
+const shotsDir = join(here, 'screenshots');
+const shots = existsSync(shotsDir) ? readdirSync(shotsDir).sort() : [];
+const images = shots.filter((name) => /\.(jpe?g|png)$/i.test(name));
+if (images.length !== shots.length) refuse(`screenshots/ holds non-image files: ${shots.filter((n) => !images.includes(n)).join(', ')}`);
+if (images.length < 3 || images.length > 4) refuse(`screenshots/ must hold 3 or 4 images, found ${images.length}`);
+if (!images[0].startsWith('1-')) refuse(`the cover (${images[0]}) should sort first and start with "1-"`);
 
 mkdirSync(out, { recursive: true });
 cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
