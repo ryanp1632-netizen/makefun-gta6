@@ -9,7 +9,7 @@ import { skyState, applySkyUniforms } from './skyAndSun.js';
 import { createCam3d, updateCam3d, cam3dMatrices, worldToScreen3d, screenToPlane, NEAR_FADE } from './chaseCamera.js';
 import { buildCityMeshes } from './cityMeshes.js';
 import { createLightSet, gatherLights } from './lighting.js';
-import { buildEffects } from './effects3d.js';
+import { buildEffects, appendRaceGate } from './effects3d.js';
 import { appendVehicle, appendHeli, pruneVehicleMotion } from './vehicleMeshes.js';
 import { appendPerson } from './characterMeshes.js';
 import { WATER_Y, roofHeight } from './heights.js';
@@ -155,7 +155,8 @@ export function buildFrameGeometry(state, game, cam, planes, o) {
   let heliPose = null;
   if (game.heli) {
     const h = game.heli;
-    const list = buildingsInRect(game.city, h.x - 140, h.y - 140, h.x + 140, h.y + 140, []);
+    // Climb over roofs the rotor could touch (it spans about 45 units), not the whole block.
+    const list = buildingsInRect(game.city, h.x - 80, h.y - 80, h.x + 80, h.y + 80, []);
     let want = o.heliAlt ?? 235;
     for (const b of list) want = Math.max(want, roofHeight(b) + 70);
     state.heliAlt = o.snap ? want : state.heliAlt + (want - state.heliAlt) * Math.min(1, dt * 1.5);
@@ -171,7 +172,8 @@ export function buildFrameGeometry(state, game, cam, planes, o) {
     dmb.xform(null);
   }
   const markers = collectMarkers(game);
-  buildEffects(fmb,{ game, cam, night, markers, heliPose, lamps: city3d.lamps, tapes });
+  for (const m of markers) if (m.arch && near(m.x, m.y) < 2400 && sphereVisible(planes, m.x, 30, m.y, m.span + 10)) appendRaceGate(dmb, m, atlas);
+  buildEffects(fmb, { game, cam, night, wet: Math.min(1, night * 0.9 + (sky.neon ?? 0) * 0.3), markers, heliPose, lamps: city3d.lamps, tapes });
   gatherLights(state.lights, { game, sky, city3d, markers, heliPose, extra: o.extraLights }, { x: cam.tx, z: cam.tz });
   return { dmb, fmb, heliPose, markers, tapes };
 }
@@ -230,11 +232,6 @@ export function render3d(r, game, w, h, viewIn = {}) {
   const gx = cam.x + (fx / fl) * 380;
   const gz = cam.z + (fz / fl) * 380;
   updateNearGround(world.gt, gx, gz, 820, view.groundBudget ?? 1);
-  if (world.atlas.dirty) {
-    gl.deleteTexture(world.atlasTex);
-    world.atlasTex = createTexture(gl, world.atlas.canvas);
-    world.atlas.dirty = false;
-  }
   // Moving geometry, effects and lights (jsMs times this pure JavaScript work).
   const tj = performance.now();
   // view.fill = { r, k, color, up, back }: a soft light riding behind the camera.
@@ -247,15 +244,38 @@ export function render3d(r, game, w, h, viewIn = {}) {
   const frameGeo = buildFrameGeometry(r, game, cam, frustumPlanes(cam.viewProj), { night, dt, t, atlas: world.atlas, city3d, sky, heliAlt: view.heliAlt, snap: view.snap, extraLights });
   const { dmb, fmb, heliPose, markers } = frameGeo;
   const jsMs = performance.now() - tj;
+  // Sign text added this frame (race gate banners) must reach the GPU before drawing.
+  if (world.atlas.dirty) {
+    gl.deleteTexture(world.atlasTex);
+    world.atlasTex = createTexture(gl, world.atlas.canvas);
+    world.atlas.dirty = false;
+  }
   uploadDynamic(gl, r.dyn, dmb);
   uploadDynamic(gl, r.fxMesh, fmb);
   const cpuMs = performance.now() - now;
-  // Labels the 2D overlay draws over the 3D view (contact letters).
+  // Labels the 2D overlay draws over the 3D view (contact letters, rival racers' tags).
   r.labels = [];
   for (const m of markers) {
     if (m.kind !== 'contact') continue;
     const s = worldToScreen3d(cam, m.x, 104 + Math.sin(t * 3) * 4, m.y);
     if (!s.behind) r.labels.push({ x: s.x, y: s.y, letter: m.letter, color: m.color, depth: s.depth });
+  }
+  // Target markers over the job's armed enemies while on foot (flashing white when hit).
+  if (!game.player.vehicle) {
+    for (const p of game.peds) {
+      if (!p.hostile || !p.mission || p.removed || (p.dead && p.deadT > 0.6) || Math.hypot(p.x - cam.x, p.y - cam.z) > 700) continue;
+      const s = worldToScreen3d(cam, p.x, 27, p.y);
+      if (!s.behind && s.x > -40 && s.x < w + 40 && s.y > -40 && s.y < h + 40) r.labels.push({ x: s.x, y: s.y, enemy: true, hp: Math.max(0, p.hp) / (p.boss ? 260 : 75), hit: p.hurtT > 0 || p.dead, dead: p.dead, depth: s.depth });
+    }
+  }
+  const race = game.missions.race;
+  if (race && race.started) {
+    for (const row of race.standings) {
+      const v = row.vehicle;
+      if (!v || v.wrecked || Math.hypot(v.x - cam.x, v.y - cam.z) > 900) continue;
+      const s = worldToScreen3d(cam, v.x, 20, v.y);
+      if (!s.behind && s.x > -60 && s.x < w + 60) r.labels.push({ x: s.x, y: s.y, tag: row.name, pos: row.pos, color: row.color, depth: s.depth });
+    }
   }
   let draws = 0;
   let tris = 0;
@@ -316,7 +336,8 @@ export function render3d(r, game, w, h, viewIn = {}) {
   // Ground: sharp chunks near the camera, the whole-map texture elsewhere.
   setCommon(r, r.P.ground, sky, cam.viewProj, t);
   const gu = r.P.ground.u;
-  gl.uniform1f(gu.u_wet, night * 0.9);
+  // The streets look rain-slick from dusk: wetness rises with the dark and with the neon.
+  gl.uniform1f(gu.u_wet, view.wet ?? Math.min(1, night * 0.9 + sky.neon * 0.3));
   if (msaa) gl.enable(gl.SAMPLE_ALPHA_TO_COVERAGE);
   gl.activeTexture(gl.TEXTURE0);
   gl.uniform1i(gu.u_tex, 0);
@@ -403,12 +424,92 @@ export function aimAt3d(r, game, sx, sy) {
   return { x: p.x, y: p.y, locked: false };
 }
 
-/** Floating contact letters over mission givers, drawn by the 2D overlay so they stay crisp. */
+const ORDINAL = ['1ST', '2ND', '3RD', '4TH', '5TH'];
+
+/** A rival racer's floating tag: place and name on a pill in the car's paint. */
+function racerTag(ctx, l) {
+  const s = Math.max(0.7, Math.min(1.15, 300 / Math.max(60, l.depth)));
+  ctx.font = `900 ${Math.round(14 * s)}px "Bahnschrift", "Segoe UI", Arial, sans-serif`;
+  const pos = ORDINAL[l.pos - 1] ?? `${l.pos}TH`;
+  const pw = ctx.measureText(pos).width + 12 * s;
+  const nw = ctx.measureText(l.tag).width + 14 * s;
+  const h = 22 * s;
+  const x = l.x - (pw + nw) / 2;
+  const y = l.y - h;
+  ctx.fillStyle = 'rgba(12,8,26,0.85)';
+  ctx.beginPath();
+  ctx.roundRect(x, y, pw + nw, h, h / 2);
+  ctx.fill();
+  ctx.fillStyle = l.color;
+  ctx.beginPath();
+  ctx.roundRect(x, y, pw, h, [h / 2, 0, 0, h / 2]);
+  ctx.fill();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const lum = Number.parseInt(l.color.slice(1, 3), 16) * 0.3 + Number.parseInt(l.color.slice(3, 5), 16) * 0.55 + Number.parseInt(l.color.slice(5, 7), 16) * 0.15;
+  ctx.fillStyle = lum > 150 ? '#120c24' : '#ffffff';
+  ctx.fillText(pos, x + pw / 2, y + h / 2 + 1);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(l.tag, x + pw + nw / 2, y + h / 2 + 1);
+  ctx.beginPath();
+  ctx.moveTo(l.x - 5 * s, y + h);
+  ctx.lineTo(l.x + 5 * s, y + h);
+  ctx.lineTo(l.x, y + h + 6 * s);
+  ctx.fillStyle = 'rgba(12,8,26,0.85)';
+  ctx.fill();
+}
+
+/** An enemy's target marker: a red arrow with a health bar, white with a hit cross when struck. */
+function enemyMarker(ctx, l) {
+  const s = Math.max(1.05, Math.min(1.7, 330 / Math.max(60, l.depth)));
+  const x = l.x;
+  const y = l.y;
+  const c = l.hit ? '#ffffff' : '#ff2f4e';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x - 10 * s, y - 14 * s);
+  ctx.lineTo(x + 10 * s, y - 14 * s);
+  ctx.lineTo(x, y);
+  ctx.closePath();
+  ctx.lineWidth = 3.5 * s;
+  ctx.strokeStyle = 'rgba(20,6,16,0.9)';
+  ctx.stroke();
+  ctx.fillStyle = c;
+  ctx.fill();
+  const bw = 30 * s;
+  const by = y - 23 * s;
+  ctx.fillStyle = 'rgba(20,6,16,0.85)';
+  ctx.fillRect(x - bw / 2 - 1.5, by - 1.5, bw + 3, 6 * s + 3);
+  ctx.fillStyle = l.dead ? '#888' : '#ff4d5e';
+  ctx.fillRect(x - bw / 2, by, bw * l.hp, 6 * s);
+  if (l.hit) {
+    // A hit marker: four short white strokes around the body.
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3 * s;
+    const cy = y + 26 * s;
+    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      ctx.beginPath();
+      ctx.moveTo(x + dx * 7 * s, cy + dy * 7 * s);
+      ctx.lineTo(x + dx * 14 * s, cy + dy * 14 * s);
+      ctx.stroke();
+    }
+  }
+}
+
+/** Floating contact letters over mission givers, rival racers' tags and enemy markers, drawn by the 2D overlay so they stay crisp. */
 export function drawWorldLabels(ctx, r) {
   if (!r) return;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   for (const l of r.labels) {
+    if (l.tag) {
+      racerTag(ctx, l);
+      continue;
+    }
+    if (l.enemy) {
+      enemyMarker(ctx, l);
+      continue;
+    }
     const s = Math.max(0.55, Math.min(1.3, 260 / Math.max(60, l.depth)));
     ctx.fillStyle = l.color;
     ctx.beginPath();

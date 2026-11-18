@@ -12,8 +12,11 @@ export const PROPERTIES = {
   penthouse: { name: 'The Azure Penthouse', price: 25000, income: 600 },
 };
 
+/** The title that goes with each respect level (index = level - 1). */
+export const RANKS = ['Fresh Out', 'Corner Name', 'Known Face', 'Wheel Hand', 'Crew Lead', 'Keys Fixer', 'Tide Turner', 'Halcyon Royalty'];
+
 export function createEconomy() {
-  return { cash: 2500, xp: 0, garage: ['sedan'], properties: { safehouse: true, penthouse: false }, tapes: [], earned: 0 };
+  return { cash: 2500, xp: 0, garage: ['sedan'], properties: { safehouse: true, penthouse: false }, tapes: [], races: [], earned: 0 };
 }
 
 /** {level, into, need, ratio} for a respect total. */

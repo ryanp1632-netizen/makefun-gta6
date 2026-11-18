@@ -5,19 +5,23 @@
 // traffic, pedestrians, five-star police with roadblocks and a helicopter, gunplay, seven story
 // jobs, side activities, synthesized radio and save games.
 //
-// It is drawn in 3D by its own WebGL2 renderer (game/src/render3d/, written from scratch). This
-// version is the polish pass: a low chase camera riding just above the roof (lagging, widening
-// with speed, swinging out in drifts, dissolving anything that comes within a few metres of the
-// lens) and a closer over-the-shoulder camera; low-poly cars with real wheel arches, spoked wheels
-// that spin and steer, see-through glass with drivers at the wheel, glowing lamps, the coupe's
-// wing, the HKPD livery and light bar and the KeyCab roof sign; people with knees, elbows, hair
-// and outfits; streets dressed with traffic signals, bus shelters, benches, roadside billboards
-// and beach kiosks of invented brands. The Canvas 2D HUD now carries a story panel with stage
-// progress and the next step, an HKPD response list (call signs, distance, RAMMING / ROADBLOCK /
-// SPOTLIGHT...), a weapon slot bar (fists to rifle), health, armour and respect bars, a big
-// speed readout with vehicle condition, the radio station and track, a GPS route on the radar
-// and city map, and the dialogue box with the speaker's portrait. The classic top-down view
-// stays one key away (V); sound is WebAudio synthesized at runtime.
+// It is drawn in 3D by its own WebGL2 renderer (game/src/render3d/, written from scratch) with a
+// low chase camera, an over-the-shoulder camera on foot, a title orbit and the classic top-down
+// view one key away (V), under a Canvas 2D HUD; sound is WebAudio synthesized at runtime.
+//
+// This version is the depth-you-can-see pass:
+//   - street races as a real side activity: Neon Mile Nights (two laps at dusk), the Strand
+//     Sprint and the Docks Derby against three named rivals, with lit checkpoint gates across the
+//     road (neon banners, road flares), live standings and gaps along the race line, a race board
+//     (place, lap, checkpoint, time), rival name tags, a countdown, prizes and respect;
+//   - a tabbed pause screen (MAP / STATS / STORY / SETTINGS): the city map with the GPS route and
+//     every activity, a % COMPLETE headline built from story, tapes, races, respect, garage, fares
+//     and property, lifetime stats (races won, fares, cops escaped, distance driven...) kept in
+//     the save, the respect rank with its next unlock, the chapters and the cast;
+//   - chapter 3 now opens with a golden-hour shakedown in the Old Mercado market: on-foot target
+//     markers with health that flash on a hit, heavier tracers, a muzzle flash that keeps the view;
+//   - rain-slick streets after dusk (puddles mirroring the sky, light streaks under tail lights,
+//     lamps and gates), a searchlight that reads in daylight and beachgoers scattering from a chase.
 //
 // This program hands it in: it copies game/ and screenshots/ from beside this file to /output and
 // writes /output/dossier.json, the summary the judge reads, with the vendored make.fun library.
@@ -34,21 +38,26 @@ import { buildDossier } from './vendor/makefun-game.ts';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-// Sanity check before handing anything in: the game's page, entry module and 3D renderer must
-// exist, and screenshots/ must hold 3 or 4 JPEG/PNG images (nothing else), the cover sorting first.
+// Sanity check before handing anything in: the game's page, entry module, 3D renderer, HUD, race
+// and pause screens must exist, and screenshots/ must hold 3 or 4 JPEG images (nothing else) from
+// this version's set, sorting with the cover first: 1-cover (the chase), 2-onfoot (the Mercado
+// gunfight), 3-race (Neon Mile Nights), 4-map (the pause screen).
 function refuse(reason: string): never {
   process.stderr.write(`main.ts: refusing to hand in: ${reason}\n`);
   process.exit(1);
 }
-for (const required of ['game/index.html', 'game/src/main.js', 'game/src/render3d/renderer3d.js', 'game/src/render3d/shaders.js', 'game/src/hud/hud.js', 'game/src/world/streetFurniture.js']) {
+for (const required of ['game/index.html', 'game/src/main.js', 'game/src/render3d/renderer3d.js', 'game/src/render3d/shaders.js', 'game/src/hud/hud.js', 'game/src/ui/pauseScreen.js', 'game/src/progression/completion.js', 'game/src/missions/sideActivities.js']) {
   if (!existsSync(join(here, required)) || !statSync(join(here, required)).isFile()) refuse(`${required} is missing`);
 }
+const SHOT_SET = ['1-cover.jpg', '2-onfoot.jpg', '3-race.jpg', '4-map.jpg'];
 const shotsDir = join(here, 'screenshots');
 const shots = existsSync(shotsDir) ? readdirSync(shotsDir).sort() : [];
 const images = shots.filter((name) => /\.(jpe?g|png)$/i.test(name));
 if (images.length !== shots.length) refuse(`screenshots/ holds non-image files: ${shots.filter((n) => !images.includes(n)).join(', ')}`);
 if (images.length < 3 || images.length > 4) refuse(`screenshots/ must hold 3 or 4 images, found ${images.length}`);
-if (!images[0].startsWith('1-')) refuse(`the cover (${images[0]}) should sort first and start with "1-"`);
+const stray = images.filter((name) => !SHOT_SET.includes(name));
+if (stray.length) refuse(`screenshots/ holds images outside this version's set (${SHOT_SET.join(', ')}): ${stray.join(', ')}`);
+if (images[0] !== SHOT_SET[0]) refuse(`the cover ${SHOT_SET[0]} must be there and sort first (found ${images[0]})`);
 
 mkdirSync(out, { recursive: true });
 cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });

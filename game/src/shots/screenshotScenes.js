@@ -2,22 +2,30 @@
 // sets up a moment of the story, and plays the real simulation forward for a few seconds with a
 // scripted autopilot (driving, drifting, aiming, shooting) before freezing on one frame, so every
 // image is the game's own 3D renderer and HUD drawing a moment that really happened in the sim.
+//   cover   the golden-hour getaway up Strand Boulevard (Ch.5) with the HKPD and the chopper;
+//   onfoot  the Mercado shakedown at golden hour (Ch.3), over the shoulder in a gunfight;
+//   race    Neon Mile Nights at dusk, a side race against three named rivals;
+//   map     the pause screen's MAP tab mid-story (stats, story, settings: ?tab=1..3).
 // ?shot=look is a free 3D camera for tuning, ?shot=check3d reports the renderer's statistics,
 // ?shot=flow plays the real app through its screens in both cameras.
 import { createGame, stepGame, STEP } from '../core/game.js';
 import { createApp, fillStreets, frameApp, newGame } from '../core/appFlow.js';
 import { createRenderer, renderWorld } from '../render/renderer.js';
 import { drawHud, drawCrosshair } from '../hud/hud.js';
-import { drawCityMap } from '../hud/cityMap.js';
+import { drawPauseScreen, PAUSE_TABS } from '../ui/pauseScreen.js';
+import { completionPercent } from '../progression/completion.js';
 import { drawTitle } from '../ui/titleScreen.js';
 import { drawResults } from '../ui/resultsScreen.js';
 import { createVehicle } from '../vehicles/drivingPhysics.js';
-import { emitTyreSmoke } from '../render/particles.js';
-import { setMinimumWanted } from '../police/wantedSystem.js';
+import { emitTyreSmoke, P_BLOOD, P_FLASH, P_TRACER } from '../render/particles.js';
+import { clearWanted, setMinimumWanted } from '../police/wantedSystem.js';
 import { spawnHeli } from '../police/policeDispatch.js';
-import { beginMission, missionById } from '../missions/missionRunner.js';
+import { abandonMission, beginMission, missionById } from '../missions/missionRunner.js';
+import { raceStart, startSideRace } from '../missions/sideActivities.js';
 import { sayLines } from '../missions/dialogue.js';
 import { placeOnLane } from '../ai/trafficAI.js';
+import { alarmPeds, createPed } from '../ai/pedestrianAI.js';
+import { randomLook } from '../render/characterArt.js';
 import { STATIONS, nowPlaying } from '../audio/radioStations.js';
 import { WEAPONS } from '../combat/weapons.js';
 import { createRenderer3d, render3d, project3d, drawWorldLabels } from '../render3d/renderer3d.js';
@@ -56,8 +64,8 @@ function skyDir(headingDeg, elevDeg) {
 /**
  * Golden-hour getaway up Strand Boulevard: the Vespera GT drifting north between Deco Row's
  * hotels and the beach, cruisers ramming at its flank and pulling alongside, a roadblock waiting
- * far ahead and the chopper's searchlight on the road, the sun sinking over the far end of the
- * boulevard. Juno is on the radio.
+ * far ahead, the chopper's searchlight slanting onto the road ahead, beachgoers scattering from
+ * the sirens and the sun sinking over the far end of the boulevard. Juno is on the radio.
  */
 function coverScene(seed) {
   const game = createGame(seed, { hours: num('hours', 18.86) });
@@ -68,7 +76,7 @@ function coverScene(seed) {
   game.notices.length = 0;
   const bx = game.city.grid.bxs[2];
   const lane = bx + num('lane', 16);
-  const startY = num('sy', 2330);
+  const startY = num('sy', 2500);
   const heading = -Math.PI / 2;
   game.noCrimeT = 999;
   const car = createVehicle('coupe', query().get('paint') ?? '#ff2f6d', lane, startY, heading);
@@ -165,9 +173,22 @@ function coverScene(seed) {
   game.dialogue.queue.length = 0;
   game.dialogue.current = null;
   sayLines(game, [['juno', "Alarms are back! You've got the whole department coming - lose them!"]]);
+  // Beachgoers on both sidewalks ahead scatter from the sirens; a few duck and cover.
+  alarmPeds(game, car.x, car.y, 900);
+  for (let i = 0; i < num('crowd', 24); i += 1) {
+    const east = i % 3 !== 0;
+    const side = east ? 1 : -1;
+    const x = bx + side * (num('crowdX', 72) + game.rng.range(-4, 8));
+    const y = car.y - num('crowdFrom', 40) - i * num('crowdGap', 20) - game.rng.range(0, 12);
+    const ped = createPed(x, y, 'civ', randomLook(game.rng), { pace: 40 });
+    ped.state = i % 5 === 4 ? 'cower' : 'flee';
+    ped.fleeT = 6;
+    ped.fleeX = x - side * 60;
+    ped.fleeY = y + 40;
+    game.peds.push(ped);
+  }
   run(game, 2);
   game.dialogue.t = 3;
-  // The chopper hangs ahead of the car, its searchlight on the road just in front of the coupe.
   const hv = Math.atan2(car.vy, car.vx);
   // Freeze on the slide: body yawed off the line of travel, still running straight up the lane.
   car.angle = heading + yawOff;
@@ -183,16 +204,18 @@ function coverScene(seed) {
       emitTyreSmoke(game.fx, game.rng, wx, wy, car.vx * 0.2, car.vy * 0.2);
     }
   }
-  const ahead = num('ha', 520);
-  const right = num('hr', -50);
+  // The chopper hangs over the hotel roofs ahead-left, its beam slanting across the facades
+  // onto the boulevard just ahead of the coupe.
+  const ahead = num('ha', 370);
+  const right = num('hr', -120);
   game.heli.x = car.x + Math.cos(hv) * ahead - Math.sin(hv) * right;
   game.heli.y = car.y + Math.sin(hv) * ahead + Math.cos(hv) * right;
   game.heli.angle = hv + Math.PI - 0.4;
   game.heli.vx = 0;
   game.heli.vy = 0;
   game.heli.lit = true;
-  game.heli.lightX = car.x + Math.cos(hv) * num('la', 40);
-  game.heli.lightY = car.y + Math.sin(hv) * num('la', 40);
+  game.heli.lightX = car.x + Math.cos(hv) * num('la', 70) - Math.sin(hv) * num('lr', -30);
+  game.heli.lightY = car.y + Math.sin(hv) * num('la', 70) + Math.cos(hv) * num('lr', -30);
   // Pinned by the searchlight and the cruisers: in sight, the zone follows the car.
   game.wanted.seen = true;
   game.wanted.evadeT = 0;
@@ -203,8 +226,8 @@ function coverScene(seed) {
   return {
     game,
     view: {
-      mode: 'chase', distK: num('distK', 1), heightK: num('heightK', 1), fov: num('fov', 64), lookUp: num('lookUp', 5), yawOffset: num('yawOff', 0), heliAlt: num('halt', 110),
-      sky: { sunDir: skyDir(num('sunH', -4), num('sunE', 6)), lightDir: skyDir(num('sunH', -4), num('sunE', 6)), fogK: num('fogK', 0.55), exposureK: num('expK', 1.05), bloomK: num('bloomK', 0.8) },
+      mode: 'chase', distK: num('distK', 1), heightK: num('heightK', 1), fov: num('fov', 64), lookUp: num('lookUp', 5), yawOffset: num('yawOff', 0), heliAlt: num('halt', 92),
+      sky: { sunDir: skyDir(num('sunH', -4), num('sunE', 6)), lightDir: skyDir(num('sunH', -4), num('sunE', 6)), fogK: num('fogK', 0.55), exposureK: num('expK', 1.0), bloomK: num('bloomK', 0.66) },
       fill: { r: num('fillR', 75), k: num('fillK', 2.2), up: num('fillUp', 2), back: -num('fillF', 34) },
     },
     overlay(ctx, w, h, r3) {
@@ -255,61 +278,73 @@ function titleScene(seed) {
 }
 
 
-/** Night on Neon Mile: the Undertow crew ambush outside Club Voltage, SMG in hand. */
+/** A parked car at (x, y) facing `angle`. */
+function parkCar(game, model, paint, x, y, angle) {
+  const v = createVehicle(model, paint, x, y, angle);
+  v.ai = 'parked';
+  game.vehicles.push(v);
+  return v;
+}
+
+/**
+ * Golden hour in the Old Mercado (Ch.3, Undertow): the crew shaking down Mags' stalls has opened
+ * up, and Dez answers with the Wasp SMG from the street beside the market. The crew hold cover
+ * behind parked cars and the fruit stalls, shoppers scatter, and the stray gunfire has brought
+ * the first HKPD unit in.
+ */
 function onFootScene(seed) {
-  const game = createGame(seed, { hours: num('hours', 21.7) });
+  const game = createGame(seed, { hours: num('hours', 18.7) });
   giveProgress(game, ['lowtide', 'coldcargo'], 9850, 900);
-  const club = game.city.pois.club;
+  game.economy.tapes = [1, 4, 9];
   const pl = game.player;
-  pl.x = club.x;
-  pl.y = club.y;
+  const px = num('px', 1728);
+  const py = num('py', 2470);
+  pl.x = px;
+  pl.y = py;
+  pl.angle = -Math.PI / 2;
   pl.weapon = 'smg';
   pl.armor = 64;
-  pl.hp = 71;
+  pl.hp = 74;
   const m = missionById('undertow');
-  beginMission(game, m, m.stages.findIndex((s) => s.type === 'lawless'));
+  beginMission(game, m, m.stages.findIndex((s) => s.type === 'spawnGang'));
   game.notices.length = 0;
   run(game, 3);
-  const kill = m.stages.findIndex((s) => s.type === 'kill');
-  game.missions.stage = kill;
+  game.missions.stage = m.stages.findIndex((s) => s.type === 'kill');
   game.missions.init = false;
   game.dialogue.queue.length = 0;
   game.dialogue.current = null;
-  sayLines(game, [['silas', 'Calloway. You should have stayed in your cell. Boys - wash him out.']]);
-  // Stage the stand-off: Dez out in the street, the crew spread along the club's sidewalk.
-  const b = club.building;
-  const out = club.y < b.y0 ? [0, -1] : club.y > b.y1 ? [0, 1] : club.x < b.x0 ? [-1, 0] : [1, 0];
-  const lat = [-out[1], out[0]];
-  const L = num('lat', 84);
-  pl.x = club.x + out[0] * num('pout', 46) + lat[0] * L;
-  pl.y = club.y + out[1] * num('pout', 46) + lat[1] * L;
-  const crew = game.missions.groups.crew ?? [];
-  // The crew fans out along the club's sidewalk behind a line of parked cars.
-  const spots = [[num('c0o', 6), num('c0l', 14)], [num('c1o', 22), num('c1l', -22)], [num('c2o', 6), num('c2l', -52)], [num('c3o', 44), num('c3l', -74)], [12, -110], [30, -140]];
+  sayLines(game, [['mags', 'Them - teal shirts, by the fruit stalls! Clear them out before they empty the tills!']]);
+  const crew = game.missions.groups.shakedown ?? [];
+  // The crew at cover up the street: behind parked cars, by the stalls, in a shop doorway.
+  const spots = [[num('g0x', 1712), num('g0y', 2378)], [num('g1x', 1684), num('g1y', 2394)], [num('g2x', 1776), num('g2y', 2402)], [num('g3x', 1754), num('g3y', 2330)]];
   crew.forEach((p, i) => {
-    const [o, l] = spots[i % spots.length];
-    p.x = club.x + out[0] * o + lat[0] * l;
-    p.y = club.y + out[1] * o + lat[1] * l;
-    p.angle = Math.atan2(pl.y - p.y, pl.x - p.x);
+    const [x, y] = spots[i % spots.length];
+    p.x = x;
+    p.y = y;
+    p.angle = Math.atan2(py - y, px - x);
   });
-  const along = Math.atan2(lat[1], lat[0]);
-  for (const [l, o, model, paint] of [[num('car0', -8), 30, 'sedan', '#2f6fdf'], [num('car1', 36), 26, 'muscle', '#8a4fd8'], [num('car2', -62), 52, 'van', '#e9d8b8']]) {
-    const v = createVehicle(model, paint, club.x + out[0] * o + lat[0] * l, club.y + out[1] * o + lat[1] * l, along + num('carA', 0.25));
-    v.ai = 'parked';
-    game.vehicles.push(v);
+  parkCar(game, 'sedan', '#2fbf9f', num('c0x', 1708), num('c0y', 2412), -Math.PI / 2 + 0.06);
+  parkCar(game, 'pickup', '#f5b82e', num('c1x', 1750), num('c1y', 2360), Math.PI / 2 - 0.04);
+  parkCar(game, 'muscle', '#c9384f', num('c2x', 1706), num('c2y', 2290), -Math.PI / 2);
+  parkCar(game, 'van', '#e9d8b8', num('c3x', 1752), num('c3y', 2214), Math.PI / 2);
+  game.pedWant = 60;
+  fillStreets(game, px, py - 200);
+  // Shoppers along the market edge and the shopfronts across the street.
+  for (let i = 0; i < num('shoppers', 10); i += 1) {
+    const east = i % 2 === 1;
+    const x = east ? 1768 + game.rng.range(-4, 6) : 1684 + game.rng.range(-6, 4);
+    const y = 2290 + i * 22 + game.rng.range(-8, 8);
+    const ped = createPed(x, y, 'civ', randomLook(game.rng), { state: 'idle', pace: 40 });
+    game.peds.push(ped);
   }
-  fillStreets(game, pl.x, pl.y);
-  // Keep bystanders and traffic out of the line of fire.
-  game.vehicles = game.vehicles.filter((v) => v.ai !== 'traffic' || Math.hypot(v.x - pl.x, v.y - pl.y) > 260);
-  for (const p of game.peds) if (!p.hostile && Math.hypot(p.x - pl.x, p.y - pl.y) < 200) p.removed = true;
+  // Keep traffic out of the gunfight and bystanders off Dez's shoulder.
+  game.vehicles = game.vehicles.filter((v) => v.ai !== 'traffic' || Math.abs(v.x - px) > 120 || v.y < py - 700 || v.y > py + 200);
+  for (const p of game.peds) if (!p.hostile && Math.hypot(p.x - px, p.y - py) < 50) p.removed = true;
   game.peds = game.peds.filter((p) => !p.removed);
   let target = null;
-  // Shoot at whoever stands closest to the middle of the crew (straight down the street).
-  const cx0 = crew.reduce((s, p) => s + p.x, 0) / Math.max(1, crew.length);
-  const cy0 = crew.reduce((s, p) => s + p.y, 0) / Math.max(1, crew.length);
-  const ahead = Math.atan2(cy0 - pl.y, cx0 - pl.x) + num('aimBias', 0);
-  const off = (p) => Math.abs(Math.atan2(Math.sin(Math.atan2(p.y - pl.y, p.x - pl.x) - ahead), Math.cos(Math.atan2(p.y - pl.y, p.x - pl.x) - ahead)));
-  const burst = [num('burst0', 70), num('burst1', 82)];
+  const centre = { x: num('aimx', 1716), y: num('aimy', 2400) };
+  const off = (p) => Math.hypot(p.x - centre.x, p.y - centre.y);
+  const burst = [num('burst0', 60), num('burst1', 200)];
   const pilot = (gm, i) => {
     const c = gm.controls;
     if (!target || target.dead) target = gm.peds.filter((p) => p.hostile && !p.dead && p.team === 'gang').sort((a, b) => off(a) - off(b))[0];
@@ -319,34 +354,41 @@ function onFootScene(seed) {
       c.aimX = target.x;
       c.aimY = target.y;
     }
-    c.fire = i >= burst[0] && i < burst[1];
-    c.firePressed = i === burst[0];
-    pl.hp = Math.max(pl.hp, 62);
-    pl.armor = Math.max(pl.armor, 48);
+    c.fire = i >= burst[0] && i < burst[1] && i % 24 < 14;
+    c.firePressed = c.fire && i % 24 === 0;
+    pl.hp = Math.max(pl.hp, 66);
+    pl.armor = Math.max(pl.armor, 50);
+    pl.x = px;
+    pl.y = py;
   };
   run(game, burst[0], pilot);
-  // Stop on a frame where Dez's SMG and at least two of the crew have just fired.
-  const flashesNear = (list, r) => game.fx.list.filter((p) => p.kind === 4 && list.some((q) => Math.hypot(p.x - q.x, p.y - q.y) < r)).length;
-  let best = -1;
+  // Stop on a frame where Dez's SMG is firing, a tracer is in the air, the crew are shooting back
+  // and someone in teal has just been hit (or is on the ground).
+  const near = (list, kind, r) => game.fx.list.filter((p) => p.kind === kind && list.some((q) => Math.hypot(p.x - q.x, p.y - q.y) < r)).length;
   let i = burst[0];
-  for (; i < burst[0] + 160; i += 1) {
+  const want = num('need', 1);
+  for (; i < burst[1]; i += 1) {
     run(game, 1, (gm) => pilot(gm, i));
-    const mine = flashesNear([pl], 30);
-    const theirs = flashesNear(crew.filter((p) => !p.dead), 30);
-    const score = (mine > 0 ? 2 : 0) + theirs;
-    if (score > best) best = score;
-    if (mine > 0 && theirs >= num('need', 2)) break;
+    const mine = near([pl], P_FLASH, 30);
+    const tracers = game.fx.list.filter((p) => p.kind === P_TRACER).length;
+    const theirs = near(crew.filter((p) => !p.dead), P_FLASH, 30);
+    const hit = crew.some((p) => !p.dead && p.hurtT > 0.15) && near(crew, P_BLOOD, 24) > 0;
+    if (mine > 0 && tracers > 0 && hit && theirs >= want) break;
   }
   game.dialogue.t = 3;
   game.districtT = 99;
   pl.hurtT = 0;
+  alarmPeds(game, px, py - 120, 500);
   const aim = { x: game.controls.aimX, y: game.controls.aimY };
-  // Face the crew: the camera looks at the middle of whoever is still standing.
   const alive = crew.filter((p) => !p.dead);
-  const look = alive.length ? { x: alive.reduce((s, p) => s + p.x, 0) / alive.length, y: alive.reduce((s, p) => s + p.y, 0) / alive.length } : aim;
+  const look = alive.length ? { x: alive.reduce((s, p) => s + p.x, 0) / alive.length + num('lookDx', 0), y: alive.reduce((s, p) => s + p.y, 0) / alive.length } : aim;
   return {
     game,
-    view: { mode: 'foot', aim: look, yawOffset: num('yawOff', 0.04), distK: num('distK', 0.74), heightK: num('heightK', 0.92), sideK: num('sideK', 1.05), fov: num('fov', 62), lookUp: num('lookUp', 0) },
+    view: {
+      mode: 'foot', aim: look, yawOffset: num('yawOff', -0.2), distK: num('distK', 0.66), heightK: num('heightK', 0.86), sideK: num('sideK', 1.1), fov: num('fov', 60), lookUp: num('lookUp', 2),
+      sky: { exposureK: num('expK', 1.06), fogK: num('fogK', 0.7), bloomK: num('bloomK', 0.9) },
+      fill: { r: num('fillR', 80), k: num('fillK', 1.4), up: 4, back: -num('fillF', 30) },
+    },
     overlay(ctx, w, h, r3) {
       drawWorldLabels(ctx, r3);
       drawHud(ctx, game, w, h, null);
@@ -356,13 +398,129 @@ function onFootScene(seed) {
   };
 }
 
-/** The city map midway through the story, over the dimmed 3D city. */
-function mapScene(seed) {
+/**
+ * Neon Mile Nights at dusk: lap two of the side race, the Vespera GT leading the pack west down
+ * the Halcyon Causeway between the towers toward the last checkpoint and the finish gate, rivals
+ * door to door, the street rain-slick under the neon.
+ */
+function raceScene(seed) {
+  const game = createGame(seed, { hours: num('hours', 19.72) });
+  giveProgress(game, ['lowtide', 'coldcargo', 'undertow', 'bluelights', 'papermoon'], 52300, 3900);
+  game.economy.races = ['strand'];
+  game.stats.racesWon = 1;
+  game.stats.racesRun = 2;
+  game.noCrimeT = 999;
+  const heading = Math.PI;
+  const speed = num('speed', 470);
+  const px = num('cx', 2760);
+  const lane = 2592 - num('lane', 24);
+  const pre = num('pre', 0.9) * speed;
+  const car = createVehicle('coupe', query().get('paint') ?? '#ff2f6d', px + pre, lane, heading);
+  car.vx = -speed;
+  car.driver = 'player';
+  car.lightsOn = true;
+  game.vehicles.push(car);
+  game.player.vehicle = car;
+  game.player.weapon = 'pistol';
+  const race = startSideRace(game, 'neon');
+  race.started = true;
+  race.countdown = 0;
+  race.startT = game.t - num('rt', 73.4);
+  race.next = 12;
+  race.pIdx = race.cpIndex[12];
+  // [metres ahead (+) or behind (-) of the coupe, offset across the road (+ = south)].
+  const form = [[num('a0', -6), num('s0', 36)], [num('a1', -20), num('s1', -27)], [num('a2', -140), num('s2', 6)]];
+  const hold = (a, s) => (gm, v) => {
+    const tx = car.x + Math.cos(heading) * a;
+    const ty = lane + s;
+    const desired = Math.atan2(ty - v.y, tx - v.x + Math.cos(heading) * 60);
+    let diff = desired - v.angle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    v.input.steer = Math.max(-1, Math.min(1, diff * 2.2));
+    const along = (tx - v.x) * Math.cos(heading);
+    v.input.throttle = along > 4 ? 1 : along < -4 ? -0.4 : 0.5;
+    v.input.handbrake = false;
+  };
+  race.racers.forEach((v, i) => {
+    const [a, s] = form[i];
+    v.x = car.x + Math.cos(heading) * a;
+    v.y = lane + s;
+    v.angle = heading;
+    v.vx = -speed;
+    v.vy = 0;
+    v.drive = hold(a, s);
+  });
+  game.trafficWant = 30;
+  game.pedWant = 70;
+  fillStreets(game, px - 300, lane);
+  const clearRoad = () => {
+    game.vehicles = game.vehicles.filter((v) => v.ai !== 'traffic' || Math.abs(v.y - 2592) > 70 || (v.x < px - num('clear', 520) && v.y > 2592) || v.x > px + pre + 200);
+  };
+  clearRoad();
+  run(game, Math.round(num('pre', 0.9) * 60), (gm) => {
+    const c = gm.controls;
+    c.moveY = -1;
+    let da = car.angle - heading;
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    c.moveX = Math.max(-1, Math.min(1, (lane - car.y) * -0.04 - da * 2));
+    c.handbrake = false;
+    car.vx = -speed;
+  });
+  // Freeze the pack in formation at the chosen spot, everyone between checkpoints 12 and 13.
+  car.x = px;
+  car.y = lane;
+  car.angle = heading;
+  car.vx = -speed;
+  car.vy = 0;
+  race.racers.forEach((v, i) => {
+    const [a, s] = form[i];
+    v.x = car.x + Math.cos(heading) * a;
+    v.y = lane + s;
+    v.angle = heading + num(`yaw${i}`, 0);
+    v.vx = -speed;
+    v.vy = 0;
+    v.pathIndex = race.cpIndex[13];
+  });
+  game.fx.list.length = 0;
+  race.next = 13;
+  race.pIdx = race.cpIndex[13];
+  clearRoad();
+  run(game, 1);
+  game.district = 'neon';
+  game.districtT = 99;
+  game.notices.length = 0;
+  const station = STATIONS[3];
+  return {
+    game,
+    view: {
+      mode: 'chase', distK: num('distK', 1), heightK: num('heightK', 1.05), fov: num('fov', 64), lookUp: num('lookUp', 7), yawOffset: num('yawOff', 0),
+      sky: { exposureK: num('expK', 1.08), fogK: num('fogK', 0.8), bloomK: num('bloomK', 1) },
+      fill: { r: num('fillR', 70), k: num('fillK', 1.2), up: 3, back: -num('fillF', 30), color: [1, 0.55, 0.9] },
+    },
+    overlay(ctx, w, h, r3) {
+      drawWorldLabels(ctx, r3);
+      drawHud(ctx, game, w, h, { name: station.name, color: station.color, track: nowPlaying(station, 2) });
+    },
+  };
+}
+
+/**
+ * The pause screen midway through the story (Paper Moon under way, the GPS leading to Halcyon
+ * Trust) over the dimmed city: the MAP tab, or ?tab=1..3 for STATS, STORY and SETTINGS.
+ */
+function pauseScene(seed, tabIndex = 0) {
   const game = newGame(seed, null, { shake: 1 });
   giveProgress(game, ['lowtide', 'coldcargo', 'undertow', 'bluelights'], 41250, 2600);
-  game.economy.tapes = [0, 2, 3, 7, 9, 12, 15];
+  game.economy.tapes = [0, 2, 3, 7, 9, 12, 15, 18];
   game.economy.properties.penthouse = true;
-  // Paper Moon is under way: Dez is out on Coral Strand and the GPS leads to Halcyon Trust.
+  game.economy.garage = ['sedan', 'van', 'coupe'];
+  game.economy.races = ['strand', 'neon'];
+  game.economy.earned = 68400;
+  Object.assign(game.stats, { racesRun: 5, racesWon: 3, fares: 11, copsEscaped: 9, driven: 9 * 48600, distance: 9 * 61900, kills: 23, shots: 412, hits: 171, crashes: 64, topSpeed: 590, maxWanted: 4, jobsFailed: 2 });
+  game.playtime = 2 * 3600 + 14 * 60;
+  game.clock.day = 3;
   const m = missionById('papermoon');
   beginMission(game, m, m.stages.findIndex((s) => s.type === 'goto'));
   game.player.x = game.city.grid.bxs[2] + 40;
@@ -370,14 +528,18 @@ function mapScene(seed) {
   game.player.angle = Math.PI / 2;
   run(game, 30);
   game.notices.length = 0;
+  const tab = num('tab', tabIndex);
   return {
     game,
     view: { mode: 'orbit', orbitT: 0, orbit: titleOrbit(0.2) },
     overlay(ctx, w, h) {
-      drawCityMap(ctx, game, w, h, true);
+      drawPauseScreen(ctx, game, w, h, { tab: Math.max(0, Math.min(PAUSE_TABS.length - 1, tab)), setSel: 0, settings: { master: 0.8, music: 0.6, sfx: 0.8, shake: 1, view: '3d' } });
     },
   };
 }
+
+const mapScene = (seed) => pauseScene(seed, 0);
+const statsScene = (seed) => pauseScene(seed, 1);
 
 /** JOB COMPLETE after Paper Moon (an alternative fourth image). */
 function resultsScene(seed) {
@@ -446,13 +608,15 @@ function check3dScene(seed) {
   };
 }
 
-const SCENES = { cover: coverScene, title: titleScene, onfoot: onFootScene, map: mapScene, results: resultsScene, classic: classicScene, look: lookScene, check3d: check3dScene };
+const SCENES = { cover: coverScene, title: titleScene, onfoot: onFootScene, race: raceScene, map: mapScene, stats: statsScene, results: resultsScene, classic: classicScene, look: lookScene, check3d: check3dScene };
 
 /**
  * Smoke test of the real app (?shot=flow): synthetic key presses walk through the title menu,
  * a new game, walking, stealing a car, driving and drifting, a police chase, the classic camera
- * (V) and back, the pause menu and the city map; the visited screens and cameras are printed in
- * the corner and any error shows in the page's error box.
+ * (V) and back, a street race (started with E at its start gate, its countdown cut short, then
+ * driven gate to gate to the finish and the prize), every tab of the pause screen, the map on M,
+ * getting out and both cameras on foot. What it saw is printed in the corner and the console
+ * ("flow ok" or "flow FAILED: ..."); any error shows in the page's error box.
  */
 function flowTest(canvas, canvas3d) {
   const app = createApp(canvas, canvas3d);
@@ -463,6 +627,17 @@ function flowTest(canvas, canvas3d) {
   };
   const seen = [];
   const views = new Set();
+  const tabs = new Set();
+  const race = { started: false, gates: 0, wonBefore: 0, cashBefore: 0, won: false, prize: 0 };
+  const car = () => app.game.player.vehicle;
+  const park = (x, y) => {
+    const v = car();
+    if (!v) return;
+    v.x = x;
+    v.y = y;
+    v.vx = 0;
+    v.vy = 0;
+  };
   const script = {
     5: () => tap('Enter'),
     20: () => key('KeyW', 'keydown'),
@@ -480,22 +655,60 @@ function flowTest(canvas, canvas3d) {
     190: () => tap('KeyV'),
     200: () => tap('KeyE'),
     215: () => tap('KeyV'),
-    230: () => tap('Escape'),
-    240: () => tap('ArrowDown'),
-    245: () => tap('Enter'),
-    270: () => tap('Escape'),
-    280: () => tap('Escape'),
-    290: () => key('KeyW', 'keyup'),
-    300: () => tap('KeyF'),
-    330: () => tap('KeyV'),
-    345: () => tap('KeyV'),
+    // Street race: lose the heat, roll up to the Neon Mile Nights start gate and press E.
+    230: () => {
+      key('KeyW', 'keyup');
+      if (app.game.missions.active) abandonMission(app.game);
+      clearWanted(app.game);
+      app.game.heli = null;
+      app.game.vehicles = app.game.vehicles.filter((v) => v.ai !== 'police' && v.ai !== 'roadblock');
+      const p = raceStart(app.game, 'neon');
+      park(p.x, p.y + 20);
+      race.wonBefore = app.game.stats.racesWon;
+      race.cashBefore = app.game.economy.cash;
+    },
+    236: () => tap('KeyE'),
+    242: () => {
+      const r = app.game.missions.race;
+      if (r) {
+        race.started = true;
+        r.countdown = 0.05;
+      }
+    },
+    // Pause: MAP, then E through STATS, STORY and SETTINGS (adjust a slider), Q back, resume.
+    320: () => tap('Escape'),
+    326: () => tap('KeyE'),
+    332: () => tap('KeyE'),
+    338: () => tap('KeyE'),
+    342: () => tap('ArrowRight'),
+    346: () => tap('KeyQ'),
+    352: () => tap('Escape'),
+    358: () => tap('KeyM'),
+    364: () => tap('KeyM'),
+    372: () => tap('KeyF'),
+    395: () => tap('KeyV'),
+    410: () => tap('KeyV'),
   };
   const cpu = [];
   let paintMax = 0;
-  for (let f = 0; f < 360; f += 1) {
+  for (let f = 0; f < 425; f += 1) {
     if (script[f]) script[f]();
+    // During the race, drive gate to gate (two frames at each so the checkpoint registers).
+    const r = app.game.missions.race;
+    if (f > 244 && f < 320 && r && r.started && f % 2 === 0) {
+      const p = r.points[r.next];
+      if (p) {
+        park(p.x, p.y);
+        race.gates += 1;
+      }
+    }
     frameApp(app, 1 / 60);
+    if (race.started && !app.game.missions.race && !race.won && app.game.stats.racesWon > race.wonBefore) {
+      race.won = true;
+      race.prize = app.game.economy.cash - race.cashBefore;
+    }
     if (seen[seen.length - 1] !== app.screen) seen.push(app.screen);
+    if (app.screen === 'pause') tabs.add(PAUSE_TABS[app.tab]);
     views.add(`${app.view}${app.game.player.vehicle ? '-car' : '-foot'}`);
     if (app.r3 && app.view === '3d' && f > 2) {
       cpu.push(app.r3.stats.jsMs);
@@ -504,17 +717,29 @@ function flowTest(canvas, canvas3d) {
   }
   const s3 = app.r3 ? app.r3.stats : {};
   const avg = cpu.length ? cpu.reduce((a, b) => a + b, 0) / cpu.length : 0;
+  const problems = [];
+  if (!race.won) problems.push('the street race was not won');
+  for (const t of PAUSE_TABS) if (!tabs.has(t)) problems.push(`pause tab ${t} never shown`);
+  for (const v of ['3d-car', 'classic-car', '3d-foot', 'classic-foot']) if (!views.has(v)) problems.push(`view ${v} never used`);
+  if (app.screen !== 'play') problems.push(`ended on ${app.screen}`);
   const ctx = canvas.getContext('2d');
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = 'rgba(0,0,0,0.7)';
-  ctx.fillRect(10, 300, 900, 132);
-  ctx.fillStyle = '#7dff9a';
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  ctx.fillRect(10, 280, 1000, 204);
+  ctx.fillStyle = problems.length ? '#ff7a7a' : '#7dff9a';
   ctx.font = '16px monospace';
-  ctx.fillText(`flow: ${seen.join(' > ')}`, 20, 322);
-  ctx.fillText(`views: ${[...views].join(', ')}  wanted: ${app.game.wanted.level}`, 20, 346);
-  ctx.fillText(`in car: ${!!app.game.player.vehicle}  station: ${app.audio.radio.station}  t=${app.game.t.toFixed(1)}  3d: ${app.r3 ? 'on' : 'off'}`, 20, 370);
-  ctx.fillText(`3d js/frame avg ${avg.toFixed(2)} ms  max ${Math.max(0, ...cpu).toFixed(1)} ms  ground step max ${paintMax.toFixed(1)} ms  world build ${(s3.buildMs ?? 0).toFixed(0)} ms`, 20, 394);
-  ctx.fillText(`static ${s3.staticTris} tris  frame ${s3.tris} tris  ${s3.draws} draws  dyn ${s3.dynVerts} verts  fx ${s3.fxVerts} verts  lights ${s3.lights}`, 20, 418);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(`flow: ${seen.join(' > ')}`, 20, 302);
+  ctx.fillText(`views: ${[...views].join(', ')}  wanted: ${app.game.wanted.level}`, 20, 326);
+  ctx.fillText(`race: ${race.won ? `won Neon Mile Nights through ${race.gates} gate visits, +$${race.prize}` : 'NOT WON'}  races won ${app.game.stats.racesWon}  routes ${app.game.economy.races.join(',')}`, 20, 350);
+  ctx.fillText(`pause tabs: ${[...tabs].join(' / ')}  completion ${completionPercent(app.game)}%`, 20, 374);
+  ctx.fillText(`in car: ${!!app.game.player.vehicle}  station: ${app.audio.radio.station}  t=${app.game.t.toFixed(1)}  3d: ${app.r3 ? 'on' : 'off'}`, 20, 398);
+  ctx.fillText(`3d js/frame avg ${avg.toFixed(2)} ms  max ${Math.max(0, ...cpu).toFixed(1)} ms  ground step max ${paintMax.toFixed(1)} ms  world build ${(s3.buildMs ?? 0).toFixed(0)} ms`, 20, 422);
+  ctx.fillText(`static ${s3.staticTris} tris  frame ${s3.tris} tris  ${s3.draws} draws  dyn ${s3.dynVerts} verts  fx ${s3.fxVerts} verts  lights ${s3.lights}`, 20, 446);
+  ctx.fillText(problems.length ? `FAILED: ${problems.join('; ')}` : 'flow ok', 20, 470);
+  if (problems.length) console.error(`flow FAILED: ${problems.join('; ')}`);
+  else console.log('flow ok');
 }
 
 /** A loud on-screen failure (the screenshot must never silently fall back). */

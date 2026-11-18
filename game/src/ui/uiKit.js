@@ -214,6 +214,32 @@ export function drawIcon(ctx, icon, x, y, r, color) {
       ctx.closePath();
       ctx.fill();
       break;
+    case 'basket':
+      ctx.moveTo(-k, -k * 0.15);
+      ctx.lineTo(k, -k * 0.15);
+      ctx.lineTo(k * 0.7, k * 0.85);
+      ctx.lineTo(-k * 0.7, k * 0.85);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.lineWidth = Math.max(1.5, r * 0.16);
+      ctx.arc(0, -k * 0.15, k * 0.6, Math.PI, 0);
+      ctx.stroke();
+      break;
+    case 'car':
+      ctx.fillRect(-k, -k * 0.1, k * 2, k * 0.65);
+      ctx.moveTo(-k * 0.6, -k * 0.1);
+      ctx.lineTo(-k * 0.35, -k * 0.6);
+      ctx.lineTo(k * 0.4, -k * 0.6);
+      ctx.lineTo(k * 0.65, -k * 0.1);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = 'rgba(10,6,24,0.9)';
+      ctx.beginPath();
+      ctx.arc(-k * 0.5, k * 0.6, k * 0.26, 0, Math.PI * 2);
+      ctx.arc(k * 0.5, k * 0.6, k * 0.26, 0, Math.PI * 2);
+      ctx.fill();
+      break;
     case 'tape':
       ctx.fillRect(-k, -k * 0.6, k * 2, k * 1.2);
       ctx.fillStyle = 'rgba(10,6,24,0.85)';

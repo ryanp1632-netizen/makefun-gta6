@@ -211,11 +211,33 @@ function racerDrive(game, v) {
   v.input.handbrake = Math.abs(diff) > 1.1 && sp > 200;
 }
 
-/** Set up a street race along a named route (story or side activity). */
+/** Rival racers: the Undertow's drivers in the story, the street's own crews in side races. */
+const RIVALS = [
+  { name: 'RAZOR', model: 'muscle', paint: '#14b8a6', story: '#14b8a6' },
+  { name: 'VANTA', model: 'coupe', paint: '#ffd23f', story: '#0f766e' },
+  { name: 'MANTIS', model: 'coupe', paint: '#7c5cff', story: '#1d1f24' },
+  { name: 'GHOST', model: 'muscle', paint: '#f4f1de', story: '#e05050' },
+];
+
+/** How far along the race line a point is, given the index of the next node on the path. */
+function lineProgress(city, race, idx, x, y) {
+  const i = Math.min(idx, race.nodePath.length - 1);
+  const n = city.nodes[race.nodePath[i]];
+  return Math.max(race.cum[Math.max(0, i - 1)], race.cum[i] - Math.hypot(n.x - x, n.y - y));
+}
+
+/**
+ * Set up a street race along a named route (story or side activity). Laps repeat the route's
+ * checkpoints; the node path between them is what the rivals drive and what positions and gaps
+ * are measured along.
+ */
 export function setupRace(game, routeId, rivals, story) {
   const city = game.city;
   const route = RACE_ROUTES[routeId];
-  const points = route.points.map((r) => gridPoint(city, r));
+  const lapPoints = route.points.map((r) => gridPoint(city, r));
+  const laps = route.laps ?? 1;
+  const points = [...lapPoints];
+  for (let lap = 1; lap < laps; lap += 1) points.push(...lapPoints.slice(1));
   const nodes = points.map((p) => nearestNode(city, p.x, p.y).id);
   const nodePath = [nodes[0]];
   const cpIndex = [0];
@@ -224,30 +246,88 @@ export function setupRace(game, routeId, rivals, story) {
     nodePath.push(...seg.slice(1));
     cpIndex.push(nodePath.length - 1);
   }
-  const race = { routeId, name: route.name, points, nodePath, cpIndex, next: 1, racers: [], started: false, countdown: 3, story, finished: [], startX: points[0].x, startY: points[0].y };
+  const cum = [0];
+  for (let i = 1; i < nodePath.length; i += 1) {
+    const a = city.nodes[nodePath[i - 1]];
+    const b = city.nodes[nodePath[i]];
+    cum.push(cum[i - 1] + Math.hypot(b.x - a.x, b.y - a.y));
+  }
+  const race = {
+    routeId, name: route.name, points, nodePath, cpIndex, cum, laps, perLap: lapPoints.length - 1, next: 1, racers: [], started: false, countdown: 3, story,
+    startX: points[0].x, startY: points[0].y, pIdx: 1, place: 1, time: 0, standings: [], gap: null, prize: route.prize ?? 0,
+  };
   const start = city.nodes[nodes[0]];
   const second = city.nodes[nodePath[1]];
   const dx = second.x - start.x;
   const dy = second.y - start.y;
   const l = Math.hypot(dx, dy) || 1;
-  const paints = ['#14b8a6', '#0f766e', '#1d1f24', '#e05050'];
   for (let i = 0; i < rivals; i += 1) {
+    const rv = RIVALS[i % RIVALS.length];
     const row = 1 + Math.floor(i / 2);
     const side = i % 2 ? 1 : -1;
     const x = start.x + (dx / l) * (40 - row * 60) - (dy / l) * 16 * side;
     const y = start.y + (dy / l) * (40 - row * 60) + (dx / l) * 16 * side;
-    const v = createVehicle(i === 0 ? 'muscle' : 'coupe', paints[i % paints.length], x, y, Math.atan2(dy, dx));
+    const v = createVehicle(rv.model, story ? rv.story : rv.paint, x, y, Math.atan2(dy, dx));
     v.ai = 'mission';
     v.driver = { team: 'gang', look: LOOKS.gang };
     v.drive = racerDrive;
     v.pathIndex = 1;
     v.temper = 0.8 + i * 0.03;
     v.racer = true;
+    v.racerName = rv.name;
+    v.lightsOn = true;
     game.vehicles.push(v);
     race.racers.push(v);
   }
   game.missions.race = race;
   return race;
+}
+
+/** The lap the player is on (1-based) and the checkpoint number within the whole race. */
+export function raceLap(race) {
+  return Math.min(race.laps, 1 + Math.floor((Math.max(1, race.next) - 1) / race.perLap));
+}
+
+/**
+ * Positions along the race line: the player's place, the standings (name, colour, progress,
+ * gap in seconds to the player) and the gap to the nearest rival.
+ */
+function rankRace(game, race) {
+  const city = game.city;
+  const pl = game.player;
+  const pv = pl.vehicle;
+  const px = pv ? pv.x : pl.x;
+  const py = pv ? pv.y : pl.y;
+  // The player's next node advances once they reach it or drive past it along the line, and is
+  // never behind the last gate they went through.
+  const cap = race.cpIndex[Math.min(race.next, race.cpIndex.length - 1)];
+  race.pIdx = Math.max(race.pIdx, Math.min(race.cpIndex[race.next - 1] + 1, race.nodePath.length - 1));
+  while (race.pIdx < cap) {
+    const n = city.nodes[race.nodePath[race.pIdx]];
+    const m = city.nodes[race.nodePath[race.pIdx + 1]];
+    const d = Math.hypot(n.x - px, n.y - py);
+    const past = (px - n.x) * (m.x - n.x) + (py - n.y) * (m.y - n.y) > 0;
+    if (d < n.hw + 40 || (past && d < 260)) race.pIdx += 1;
+    else break;
+  }
+  const mine = lineProgress(city, race, race.pIdx, px, py);
+  const speed = Math.max(140, pv ? Math.hypot(pv.vx, pv.vy) : 0);
+  const rows = [{ name: 'YOU', color: '#ff6b5a', progress: mine, you: true }];
+  for (const r of race.racers) {
+    const p = r.wrecked ? -1 : lineProgress(city, race, r.pathIndex, r.x, r.y);
+    rows.push({ name: r.racerName ?? 'RIVAL', color: r.paint, progress: p, wrecked: r.wrecked, vehicle: r });
+  }
+  rows.sort((a, b) => b.progress - a.progress);
+  rows.forEach((row, i) => {
+    row.pos = i + 1;
+    row.gap = row.you ? 0 : (row.progress - mine) / speed;
+  });
+  race.standings = rows;
+  race.place = rows.findIndex((r) => r.you) + 1;
+  // The rival to watch: the one just ahead, or the one closest behind when leading.
+  const ahead = rows[race.place - 2];
+  const behind = rows[race.place];
+  race.gap = ahead ? { name: ahead.name, s: ahead.gap } : behind && !behind.wrecked ? { name: behind.name, s: behind.gap } : null;
 }
 
 /** Advance a race: countdown, the player's checkpoints, rivals' progress. Returns 'won', 'lost' or null. */
@@ -266,28 +346,35 @@ export function updateRace(game, dt) {
       if (race.countdown <= 0) {
         race.started = true;
         race.startT = game.t;
+        game.stats.racesRun += 1;
         game.events.push({ type: 'raceGo' });
       }
     }
     return null;
   }
+  race.time = game.t - race.startT;
   const cp = race.points[race.next];
   const px = pv ? pv.x : pl.x;
   const py = pv ? pv.y : pl.y;
   if (Math.hypot(px - cp.x, py - cp.y) < 85) {
     race.next += 1;
     game.events.push({ type: 'checkpoint' });
-    if (race.next >= race.points.length) return 'won';
+    if (race.next >= race.points.length) {
+      rankRace(game, race);
+      race.place = 1;
+      game.stats.racesWon += 1;
+      if (!game.economy.races.includes(race.routeId)) game.economy.races.push(race.routeId);
+      return 'won';
+    }
   }
   for (const r of race.racers) {
     if (r.wrecked) continue;
-    if (r.pathIndex >= race.nodePath.length) return 'lost';
+    if (r.pathIndex >= race.nodePath.length) {
+      race.winner = r.racerName ?? 'A rival';
+      return 'lost';
+    }
   }
-  // Player's place: rivals past more checkpoints are ahead.
-  const myIndex = race.cpIndex[race.next - 1];
-  let place = 1;
-  for (const r of race.racers) if (!r.wrecked && r.pathIndex - 1 > myIndex) place += 1;
-  race.place = place;
+  rankRace(game, race);
   return null;
 }
 
@@ -420,7 +507,7 @@ export function updateMissions(game, dt) {
       if (first) setupRace(game, st.route, st.rivals, true);
       const race = s.race;
       s.objective = race.started ? `${st.text} - checkpoint ${race.next} / ${race.points.length - 1}` : 'Drive to the start line';
-      s.progress = race.started ? `Position ${race.place ?? 1} / ${race.racers.length + 1}` : race.countdown < 3 ? `Starting in ${Math.ceil(race.countdown)}` : '';
+      s.progress = race.started ? `Position ${race.place} / ${race.racers.length + 1}` : race.countdown < 3 ? `Starting in ${Math.ceil(race.countdown)}` : '';
       const result = updateRace(game, dt);
       if (result === 'won') stageDone(game);
       else if (result === 'lost') failMission(game, "Grieve's racer crossed the line first");
@@ -452,12 +539,39 @@ export function stageProgress(game) {
   return { stage: pos + 1, total: facing.length, next: after !== undefined ? m.stages[after].text : `Collect $${m.payout.toLocaleString('en-US')} from ${m.giver[0].toUpperCase()}${m.giver.slice(1)}` };
 }
 
-/** Markers for the renderer and the minimap: contacts, targets, checkpoints. */
+/**
+ * Race checkpoint markers: the next gate and the one after it, each with the direction of travel
+ * through it and the road's half-width (the 3D view raises a lit arch across the road there).
+ */
+function raceMarkers(game, race, out) {
+  const city = game.city;
+  const gate = (i, kind) => {
+    const p = race.points[i];
+    if (!p) return;
+    const prev = race.points[i - 1] ?? p;
+    const after = race.points[i + 1];
+    const dir = i === 0 && after ? Math.atan2(after.y - p.y, after.x - p.x) : Math.atan2(p.y - prev.y, p.x - prev.x);
+    const node = nearestNode(city, p.x, p.y);
+    const finish = i === race.points.length - 1;
+    out.push({
+      x: p.x, y: p.y, r: kind === 'checkpoint' ? 70 : 50, color: finish ? '#ffffff' : '#ff4fd8', rgb: '255,79,216', kind, arch: true, dir, span: node.hw + 10,
+      label: i === 0 ? 'Start line' : finish ? 'Finish' : 'Checkpoint', gateText: i === 0 ? 'START' : finish ? 'FINISH' : `CHECKPOINT ${i}`, finish,
+    });
+  };
+  if (!race.started) gate(0, 'checkpoint');
+  else {
+    gate(race.next, 'checkpoint');
+    gate(race.next + 1, 'checkpoint2');
+  }
+}
+
+/** Markers for the renderer and the minimap: contacts, targets, race gates. */
 export function missionMarkers(game) {
   const s = game.missions;
   const out = [];
+  if (s.race) raceMarkers(game, s.race, out);
   if (!s.active) {
-    const m = nextMission(game);
+    const m = s.race ? null : nextMission(game);
     if (m) {
       const p = resolvePoint(game, m.start);
       out.push({ x: p.x, y: p.y, r: 30, color: '#ffd166', rgb: '255,209,102', kind: 'contact', label: `${m.title}`, letter: m.giver[0].toUpperCase() });
@@ -473,13 +587,6 @@ export function missionMarkers(game) {
   if (st.type === 'enter' && st.vehicle && s.vehicles[st.vehicle]) out.push({ x: s.vehicles[st.vehicle].x, y: s.vehicles[st.vehicle].y, r: 30, color: '#5ad8ff', rgb: '90,216,255', kind: 'vehicle', label: 'Target vehicle' });
   if (st.type === 'chase' && s.vehicles[st.key]) out.push({ x: s.vehicles[st.key].x, y: s.vehicles[st.key].y, r: 26, color: '#ff4d4d', rgb: '255,77,77', kind: 'enemy', label: 'Courier', follow: true });
   if (st.type === 'kill' && s.groups[st.group]) for (const p of s.groups[st.group]) if (!p.dead) out.push({ x: p.x, y: p.y, r: 0, color: '#ff4d4d', rgb: '255,77,77', kind: 'enemy', small: true });
-  if (st.type === 'race' && s.race) {
-    const race = s.race;
-    const p = race.started ? race.points[race.next] : { x: race.startX, y: race.startY };
-    if (p) out.push({ x: p.x, y: p.y, r: 70, color: '#ff7eb6', rgb: '255,126,182', kind: 'checkpoint', label: race.started ? 'Checkpoint' : 'Start line' });
-    const after = race.points[race.next + 1];
-    if (race.started && after) out.push({ x: after.x, y: after.y, r: 50, color: '#ff7eb6', rgb: '255,126,182', kind: 'checkpoint2' });
-  }
   return out;
 }
 

@@ -5,11 +5,13 @@
 //   bottom left   the radar, the district name, health, armour and respect bars;
 //   bottom right  (driving) radio station and track, vehicle name and condition, big speed;
 //   bottom centre the dialogue box with the speaker's portrait, prompts above it;
-//   top centre    notices, and the district banner for a moment on arrival.
+//   top centre    notices, and the district banner for a moment on arrival; during a street
+//                 race the race board (place, lap, checkpoint, time, gap to the nearest rival)
+//                 with the standings under the story panel and the start countdown mid-screen.
 import { drawMinimap } from './minimap.js';
 import { drawPortrait } from '../ui/portraits.js';
 import { CAST } from '../missions/storyMissions.js';
-import { stageProgress } from '../missions/missionRunner.js';
+import { raceLap, stageProgress } from '../missions/missionRunner.js';
 import { describeResponse } from '../police/policeDispatch.js';
 import { DISTRICTS } from '../world/districts.js';
 import { WEAPONS, WEAPON_ORDER } from '../combat/weapons.js';
@@ -23,9 +25,98 @@ const INK = '#f4f1de';
 const DIM = 'rgba(244,241,222,0.62)';
 const STATE_COLORS = { RAMMING: '#ff4d5e', PURSUIT: '#ff8c42', ROADBLOCK: '#ffd166', SPOTLIGHT: '#fff3b0', SWEEPING: '#9fd8ff', SEARCHING: '#7f8aa8', 'ON FOOT': '#5ab4ff', ENGAGING: '#ff6b7a' };
 
+const ORDINAL = ['1ST', '2ND', '3RD', '4TH', '5TH', '6TH'];
+
 function timerText(t) {
   const v = Math.max(0, t);
   return `${Math.floor(v / 60)}:${String(Math.floor(v % 60)).padStart(2, '0')}`;
+}
+
+/** Race time as m:ss.cc. */
+function raceTime(t) {
+  const v = Math.max(0, t);
+  return `${Math.floor(v / 60)}:${(v % 60).toFixed(2).padStart(5, '0')}`;
+}
+
+/**
+ * Top centre during a race: the place in huge type, then lap, checkpoint and time, and under them
+ * the gap to the rival just ahead (or just behind when leading). Returns the bottom edge.
+ */
+function drawRaceBoard(ctx, game, w, h) {
+  const race = game.missions.race;
+  if (!race) return 0;
+  if (!race.started) {
+    if (race.countdown < 3) {
+      const n = Math.ceil(race.countdown);
+      const k = 1 + (n - race.countdown) * 0.35;
+      outlined(ctx, String(n), w / 2, h * 0.42, ACCENT.sun, Math.round(120 * k), 900, 'center', DISPLAY, 'rgba(10,6,24,0.9)');
+      outlined(ctx, 'GET READY', w / 2, h * 0.42 + 48, '#ffffff', 24, 900, 'center');
+    }
+    return 0;
+  }
+  if (race.time < 1.2) outlined(ctx, 'GO!', w / 2, h * 0.42, ACCENT.cash, 120, 900, 'center', DISPLAY, 'rgba(10,6,24,0.9)');
+  const W = 430;
+  const H = 112;
+  const x = (w - W) / 2;
+  const y = 14;
+  panel(ctx, x, y, W, H, ACCENT.pink, 0.84);
+  const total = race.racers.length + 1;
+  const lead = race.place === 1;
+  const ord = ORDINAL[race.place - 1] ?? `${race.place}TH`;
+  outlined(ctx, ord, x + 20, y + 72, lead ? ACCENT.sun : '#ffffff', 58, 900, 'left', DISPLAY, 'rgba(10,6,24,0.95)');
+  ctx.font = `900 58px ${DISPLAY}`;
+  const ow = ctx.measureText(ord).width;
+  outlined(ctx, `/ ${total}`, x + 26 + ow, y + 70, DIM, 24, 900, 'left', DISPLAY);
+  const cols = [
+    ['LAP', `${raceLap(race)}/${race.laps}`],
+    ['CHECKPOINT', `${Math.min(race.next, race.points.length - 1)}/${race.points.length - 1}`],
+    ['TIME', raceTime(race.time)],
+  ];
+  const cx0 = x + W - 230;
+  cols.forEach(([label, value], i) => {
+    const cx = cx0 + [0, 62, 152][i];
+    text(ctx, label, cx, y + 32, DIM, 11, 900);
+    outlined(ctx, value, cx, y + 60, '#ffffff', i === 2 ? 22 : 24, 900, 'left', FONT);
+  });
+  if (race.gap) {
+    const ahead = race.gap.s > 0;
+    const s = Math.abs(race.gap.s);
+    const label = ahead ? `${race.gap.name} ${s.toFixed(2)} s AHEAD - REEL THEM IN` : `${s.toFixed(2)} s CLEAR OF ${race.gap.name}`;
+    ctx.font = `900 13px ${FONT}`;
+    const cw = ctx.measureText(label).width + 30;
+    chip(ctx, `${ahead ? '▼' : '▲'} ${label}`, x + (W - cw) / 2, y + 82, ahead ? '#ff4d5e' : ACCENT.cash, '#120c24', 13, 22);
+  }
+  return y + H;
+}
+
+/** Under the story panel during a race: everyone in order with the gap to the player. */
+function drawStandings(ctx, game, x, y) {
+  const race = game.missions.race;
+  if (!race || !race.started || !race.standings.length) return y;
+  const rows = race.standings;
+  const W = 396;
+  const h = 40 + rows.length * 27;
+  panel(ctx, x, y, W, h, ACCENT.pink, 0.8);
+  outlined(ctx, 'STANDINGS', x + 18, y + 26, INK, 15, 900);
+  text(ctx, race.name.toUpperCase(), x + W - 16, y + 26, DIM, 12, 800, 'right');
+  rows.forEach((r, i) => {
+    const ry = y + 38 + i * 27;
+    if (r.you) {
+      ctx.fillStyle = 'rgba(255,107,90,0.22)';
+      ctx.fillRect(x + 10, ry, W - 20, 25);
+    } else if (i % 2 === 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.04)';
+      ctx.fillRect(x + 10, ry, W - 20, 25);
+    }
+    outlined(ctx, String(r.pos), x + 24, ry + 19, r.pos === 1 ? ACCENT.sun : INK, 16, 900, 'center');
+    roundRect(ctx, x + 40, ry + 5, 8, 15, 3);
+    ctx.fillStyle = r.color;
+    ctx.fill();
+    text(ctx, r.you ? 'YOU  ·  DEZ' : r.name, x + 58, ry + 18, r.you ? '#ffffff' : INK, 15, 800);
+    const gap = r.you ? (r.pos === 1 ? 'LEADER' : '') : r.wrecked ? 'WRECKED' : `${r.gap > 0 ? '+' : '-'}${Math.abs(r.gap).toFixed(2)} s`;
+    text(ctx, gap, x + W - 18, ry + 18, r.wrecked ? '#ff7a7a' : r.gap > 0 ? '#ff8c8c' : '#8dffb0', 14, 800, 'right');
+  });
+  return y + h;
 }
 
 /** Top left: the story job (or race / taxi shift) with stage progress, next step and timer. */
@@ -55,9 +146,10 @@ function drawStoryPanel(ctx, game, x, y) {
   } else if (race) {
     tag = 'RACE';
     title = race.name.toUpperCase();
-    objective = race.started ? `Checkpoint ${race.next} / ${race.points.length - 1}` : 'Line up at the start';
-    status = race.started ? `Position ${race.place ?? 1} / ${race.racers.length + 1}` : '';
+    objective = race.started ? `Hit checkpoint ${race.next} of ${race.points.length - 1} - stay ahead of the pack` : 'Line up at the start gate';
+    status = race.started ? `${ORDINAL[race.place - 1]} of ${race.racers.length + 1}  ·  lap ${raceLap(race)} / ${race.laps}` : '';
     prog = { stage: Math.max(1, race.next), total: race.points.length - 1 };
+    next = race.prize ? `Win $${race.prize.toLocaleString('en-US')} and respect` : '';
     color = ACCENT.pink;
   } else {
     tag = 'TAXI';
@@ -384,8 +476,8 @@ function drawDialogue(ctx, game, w, h) {
   wrap(ctx, shown, bw - 140).slice(0, 3).forEach((ln, i) => text(ctx, ln, x + 120, y + 60 + i * 24, '#ffffff', 19, 700));
 }
 
-function drawNotices(ctx, game, w) {
-  let yy = 40;
+function drawNotices(ctx, game, w, y0 = 40) {
+  let yy = y0;
   for (const n of game.notices) {
     const a = n.t < 0.3 ? n.t / 0.3 : n.t > 4 ? 5 - n.t : 1;
     ctx.save();
@@ -414,10 +506,12 @@ export function drawHud(ctx, game, w, h, radio) {
   drawVitals(ctx, game, mx, h);
   drawStatusCorner(ctx, game, w);
   const below = drawStoryPanel(ctx, game, 18, 18);
-  drawResponsePanel(ctx, game, 18, below + 10);
+  const standings = drawStandings(ctx, game, 18, below + 10);
+  drawResponsePanel(ctx, game, 18, standings > below ? standings + 10 : below + 10);
   if (pl.vehicle) drawDriving(ctx, game, w, h, radio);
+  const board = drawRaceBoard(ctx, game, w, h);
   drawDistrictBanner(ctx, game, w);
-  drawNotices(ctx, game, w);
+  drawNotices(ctx, game, w, board ? board + 30 : 40);
   if (game.prompt && !game.dialogue.current) {
     ctx.font = `700 17px ${FONT}`;
     const tw = ctx.measureText(game.prompt.text).width + 40;

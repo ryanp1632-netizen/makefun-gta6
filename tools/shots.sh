@@ -11,7 +11,7 @@ PORT=8095
 TMP="${TMPDIR:-${TEMP:-/tmp}}/halcyon-shots"
 OUT="${SHOTS_OUT:-screenshots}"
 mkdir -p "$TMP" "$OUT"
-SCENES=("1-cover:cover" "2-title:title" "3-onfoot:onfoot" "4-map:map")
+SCENES=("1-cover:cover" "2-onfoot:onfoot" "3-race:race" "4-map:map")
 if [ "$#" -gt 0 ]; then
   SCENES=()
   for s in "$@"; do SCENES+=("$s"); done
@@ -27,6 +27,7 @@ for entry in "${SCENES[@]}"; do
   png="$TMP/$name.png"
   rm -f "$png"
   "$CHROME" --headless=new --use-angle=swiftshader --enable-unsafe-swiftshader --ignore-gpu-blocklist \
+    --disable-background-networking --disable-component-update --no-first-run --no-default-browser-check \
     --hide-scrollbars --force-device-scale-factor=1 --window-size=1280,800 --enable-logging=stderr --v=0 \
     --virtual-time-budget=90000 --user-data-dir="$TMP/profile-$name" --screenshot="$png" \
     "http://localhost:$PORT/index.html?shot=$scene&seed=1${SHOT_QUERY:-}" > "$TMP/$name.chrome.log" 2>&1 || true

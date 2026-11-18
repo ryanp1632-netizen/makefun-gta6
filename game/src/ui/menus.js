@@ -1,10 +1,9 @@
-// Overlay menus: pause, settings sliders, the controls card, and the list menus for the
-// Reef & Trigger counter, the safehouse (save, sleep, garage), the garage and the penthouse sale.
+// Overlay menus: the title screen's settings sliders, the controls card, and the list menus for
+// the Reef & Trigger counter, the safehouse (save, sleep, garage), the garage and the penthouse
+// sale. The tabbed pause screen lives in pauseScreen.js.
 import { ACCENT, DISPLAY, FONT, outlined, panel, roundRect, text } from './uiKit.js';
 import { SETTING_ROWS } from '../save/settings.js';
 import { formatCash } from '../core/math.js';
-
-export const PAUSE_ITEMS = ['Resume', 'City Map', 'Settings', 'Controls', 'Abandon Job', 'Quit to Title'];
 
 function dim(ctx, w, h, a = 0.65) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -38,11 +37,6 @@ export function drawListMenu(ctx, w, h, title, items, sel, footer = '', accent =
     if (it.note) text(ctx, it.note, x + bw - 36, ry + 27, it.noteColor ?? (it.disabled ? 'rgba(244,241,222,0.38)' : ACCENT.sun), 16, 700, 'right');
   });
   if (footer) text(ctx, footer, x + 30, y + bh - 22, 'rgba(244,241,222,0.6)', 14, 600);
-}
-
-export function drawPause(ctx, w, h, sel, game) {
-  const items = PAUSE_ITEMS.map((label) => ({ label, disabled: label === 'Abandon Job' && !game.missions.active }));
-  drawListMenu(ctx, w, h, 'PAUSED', items, sel, 'Progress saves at the safehouse and after every job.', ACCENT.pink, game.missions.active ? `On the job: ${game.missions.active.title}` : '');
 }
 
 export function drawSettings(ctx, w, h, sel, settings) {
@@ -101,7 +95,7 @@ export function drawControls(ctx, w, h) {
       text(ctx, d, cx + kw + 12, ry, '#f4f1de', 15, 600);
     });
   });
-  text(ctx, 'M  city map   ·   Esc  pause   ·   Enter  skip dialogue', x + 30, y + bh - 24, 'rgba(244,241,222,0.65)', 14, 700);
+  text(ctx, 'M  map   ·   Esc  pause (Q / E switch tabs)   ·   Enter  skip dialogue', x + 30, y + bh - 24, 'rgba(244,241,222,0.65)', 14, 700);
 }
 
 /** Rows for the shop menu from economy.shopItems. */

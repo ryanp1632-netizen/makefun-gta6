@@ -1,10 +1,11 @@
-// Things to do between jobs: twenty hidden Sunset Tapes, KeyCab fares when driving a taxi, two
-// street races, Fresh Coat resprays that wash off the heat, the Reef & Trigger counter, the
+// Things to do between jobs: twenty hidden Sunset Tapes, KeyCab fares when driving a taxi, three
+// street races against named rivals (Neon Mile Nights over two laps, the Strand Sprint and the
+// Docks Derby), Fresh Coat resprays that wash off the heat, the Reef & Trigger counter, the
 // safehouse (save, sleep, garage) and the Azure Penthouse for sale. Also the "Press E" prompts.
 import { addCash, addRespect, notify } from '../progression/economy.js';
 import { clearWanted } from '../police/wantedSystem.js';
 import { gridPoint, setupRace, updateRace } from './missionRunner.js';
-import { RACE_ROUTES } from './storyMissions.js';
+import { RACE_ROUTES, SIDE_RACES } from './storyMissions.js';
 import { createVehicle, vehicleSpeed } from '../vehicles/drivingPhysics.js';
 import { CAR_PAINT } from '../vehicles/vehicleModels.js';
 import { sidewalkPoint } from '../world/roadGraph.js';
@@ -19,10 +20,19 @@ export const TAPE_TITLES = [
   'Riptide Romance - Sea Glass', 'Afterglow Avenue - Lumen', 'Hurricane Season - Tormenta', 'Last Light - Pearl Harbor Band',
 ];
 
-const RACE_STARTS = [
-  { id: 'strand', ref: ['b2', 'y:2592'], prize: 2400, respect: 220 },
-  { id: 'docks', ref: ['x:1', 'y:last'], prize: 2000, respect: 200 },
-];
+/** Where a side race starts. */
+export function raceStart(game, id) {
+  return gridPoint(game.city, RACE_ROUTES[id].points[0]);
+}
+
+/** Start side race `id` against three rivals. */
+export function startSideRace(game, id) {
+  return setupRace(game, id, 3, false);
+}
+
+function formatRaceTime(t) {
+  return `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
+}
 
 /** Every permanent place of interest, for the minimap and city map. */
 export function activityPoints(game) {
@@ -37,8 +47,8 @@ export function activityPoints(game) {
     { ...P.hospital, icon: 'cross', color: '#ff5a6e', label: 'Mercy Shores Medical' },
     { ...P.police, icon: 'badge', color: '#5aa0ff', label: 'HKPD Precinct 3' },
   ];
-  for (const r of RACE_STARTS) {
-    const p = gridPoint(game.city, r.ref);
+  for (const r of SIDE_RACES) {
+    const p = raceStart(game, r.id);
     list.push({ x: p.x, y: p.y, icon: 'flag', color: '#ff7eb6', label: `Street race: ${RACE_ROUTES[r.id].name}` });
   }
   return list;
@@ -118,6 +128,7 @@ function updateTaxi(game, dt) {
       newFare(game, v);
     } else if (Math.hypot(v.x - a.x, v.y - a.y) < 70 && vehicleSpeed(v) < 60) {
       a.fares += 1;
+      game.stats.fares += 1;
       addCash(game, Math.round(60 + a.dist * 0.3 + a.timer * 8), `fare #${a.fares}`);
       addRespect(game, 25);
       newFare(game, v);
@@ -171,14 +182,15 @@ export function updateActivities(game, dt) {
   if (s.race && !s.race.story) {
     const r = updateRace(game, dt);
     if (r === 'won') {
-      const start = RACE_STARTS.find((x) => x.id === s.race.routeId);
-      notify(game, `YOU WON THE ${s.race.name.toUpperCase()}`, '#7dff9a', true);
+      const start = SIDE_RACES.find((x) => x.id === s.race.routeId);
+      notify(game, `1ST PLACE  ${s.race.name.toUpperCase()}  ${formatRaceTime(s.race.time)}`, '#7dff9a', true);
       addCash(game, start.prize, 'race prize');
       addRespect(game, start.respect);
+      game.events.push({ type: 'raceWon' });
       for (const v of s.race.racers) v.drive = null;
       s.race = null;
     } else if (r === 'lost' || !pl.vehicle) {
-      notify(game, 'Race lost', '#ff7a7a', true);
+      notify(game, r === 'lost' ? `${s.race.winner} TOOK THE ${s.race.name.toUpperCase()}` : 'Race abandoned', '#ff7a7a', true);
       for (const v of s.race.racers) v.drive = null;
       s.race = null;
     }
@@ -201,9 +213,8 @@ export function updateActivities(game, dt) {
       if (near(P[key], 60)) game.prompt = { text: `E  Fresh Coat respray  $${150 + game.wanted.level * 250}`, act: () => respray(game, v) };
     }
     if (!s.active && !s.race) {
-      for (const r of RACE_STARTS) {
-        const p = gridPoint(game.city, r.ref);
-        if (near(p, 70)) game.prompt = { text: `E  Start street race: ${RACE_ROUTES[r.id].name}`, act: () => setupRace(game, r.id, 3, false) };
+      for (const r of SIDE_RACES) {
+        if (near(raceStart(game, r.id), 70)) game.prompt = { text: `E  Start street race: ${RACE_ROUTES[r.id].name}  $${r.prize.toLocaleString('en-US')}`, act: () => startSideRace(game, r.id) };
       }
     }
     if (!game.prompt && v.model === 'taxi' && !s.active) {

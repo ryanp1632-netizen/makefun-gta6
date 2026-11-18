@@ -41,10 +41,15 @@ export const MISSIONS = [
     ],
   },
   {
-    id: 'undertow', chapter: 3, title: 'Undertow', giver: 'mags', start: 'market', payout: 4200, respect: 650, night: true,
-    blurb: "The Undertow shook down Mags' stalls. Answer them at Club Voltage.",
+    id: 'undertow', chapter: 3, title: 'Undertow', giver: 'mags', start: 'market', payout: 4200, respect: 650,
+    blurb: "The Undertow are shaking down Mags' stalls. Run them out of the Mercado, then answer them at Club Voltage.",
     stages: [
-      { type: 'talk', lines: [['mags', 'They torched three stalls last night. They drink at Club Voltage, like they own the Mile.'], ['dez', "They don't."]] },
+      { type: 'talk', lines: [['mags', 'They torched three stalls last night and now they want rent on the rest.'], ['dez', 'Who is collecting?']] },
+      { type: 'spawnGang', key: 'shakedown', at: 'market', count: 4, weapons: ['pistol', 'smg', 'pistol'], spread: 150 },
+      { type: 'talk', lines: [['mags', "Them - teal shirts, by the fruit stands! Clear them out before they empty the tills!"]] },
+      { type: 'kill', group: 'shakedown', text: 'Run the Undertow crew out of the Mercado' },
+      { type: 'escape', text: 'Lose any heat' },
+      { type: 'talk', lines: [['mags', 'They drink at Club Voltage, like they own the Mile.'], ['dez', "They don't."]] },
       { type: 'goto', at: 'club', r: 80, text: 'Get to Club Voltage on Neon Mile', timer: 200 },
       { type: 'lawless', on: true },
       { type: 'spawnGang', key: 'crew', at: 'club', count: 6, weapons: ['pistol', 'smg', 'pistol'], spread: 170 },
@@ -113,9 +118,20 @@ export const MISSIONS = [
   },
 ];
 
-/** Street race routes as grid references: [column, row] of road intersections. */
+/**
+ * Street race routes as grid references: [column, row] of road intersections. A route with laps
+ * ends where it starts and is driven `laps` times.
+ */
 export const RACE_ROUTES = {
   causeway: { name: 'Causeway Run', points: [['b2', 'y:1'], ['b2', 'y:2592'], ['b0', 'y:2592'], ['x:last', 'y:2592'], ['x:3', 'y:2592'], ['x:3', 'y:1184'], ['x:last', 'y:1184'], ['b0', 'y:1184'], ['b2', 'y:1184']] },
   strand: { name: 'Strand Sprint', points: [['b2', 'y:2592'], ['b2', 'y:1'], ['b0', 'y:1'], ['b0', 'y:2592'], ['b1', 'y:2592'], ['b1', 'y:1']] },
   docks: { name: 'Docks Derby', points: [['x:1', 'y:last'], ['x:5', 'y:last'], ['x:5', 'y:6'], ['x:1', 'y:6'], ['x:1', 'y:last']] },
+  neon: { name: 'Neon Mile Nights', laps: 2, points: [['x:3', 'y:2592'], ['x:3', 'y:3'], ['x:4', 'y:3'], ['x:6', 'y:3'], ['x:6', 'y:2592'], ['x:5', 'y:2592'], ['x:4', 'y:2592'], ['x:3', 'y:2592']] },
 };
+
+/** The side races: where each starts (a grid reference on its route), the prize and respect. */
+export const SIDE_RACES = [
+  { id: 'neon', prize: 3000, respect: 260 },
+  { id: 'strand', prize: 2400, respect: 220 },
+  { id: 'docks', prize: 2000, respect: 200 },
+];

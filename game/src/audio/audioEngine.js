@@ -183,6 +183,10 @@ export function playEvents(audio, game, events) {
       case 'raceGo':
         tone(ac, out, t, 1320, 0.4, 0.2, 'square');
         break;
+      case 'raceWon':
+        [0, 7, 12, 16, 19].forEach((n, i) => tone(ac, out, t + i * 0.07, midiToFreq(67 + n), 0.35, 0.14, 'square'));
+        kick(ac, out, t, 0.5);
+        break;
       case 'dialogue':
         tone(ac, out, t, 520, 0.05, 0.06, 'sine', 700);
         break;

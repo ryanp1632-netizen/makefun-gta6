@@ -1,10 +1,12 @@
 // Camera-facing effects for the 3D view, rebuilt every frame from the simulation: tyre smoke
 // and exhaust as soft puffs, fire, sparks, muzzle flashes and explosion bursts as additive
 // billboards, bullet tracers as glowing streaks, shock rings, splashes, blood and debris, plus
-// skid marks on the asphalt, mission beacons (light columns and pulsing rings), the helicopter's
-// rotor blur and searchlight cone, headlight beams at night and lens flares on light bars,
-// lamps and tail lights.
-import { MAT } from './meshBuilder.js';
+// skid marks on the asphalt, mission beacons (light columns and pulsing rings), street-race gates
+// (a lit arch across the road with a neon banner, a glowing line and road flares at its feet),
+// the helicopter's rotor blur and searchlight cone, headlight beams at night and lens flares on
+// light bars, lamps and tail lights.
+import { MAT, frame } from './meshBuilder.js';
+import { atlasEntry } from './textAtlas.js';
 import { P_BLOOD, P_DEBRIS, P_FIRE, P_FLASH, P_RING, P_SMOKE, P_SPARK, P_SPLASH, P_TRACER, P_TYRE } from '../render/particles.js';
 
 const SH = { SOFT: 0, SOLID: 1, RING: 3, PUFF: 4, BEAM: 6, DISC: 7 };
@@ -47,6 +49,26 @@ function streak(mb, cam, ax, ay, az, bx, by, bz, w) {
   sy = (sy / l) * w;
   sz = (sz / l) * w;
   mb.quad(ax - sx, ay - sy, az - sz, bx - sx, by - sy, bz - sz, bx + sx, by + sy, bz + sz, ax + sx, ay + sy, az + sz, 0, 0, 1, 1);
+}
+
+/**
+ * A light's reflection on wet asphalt: a soft streak on the ground from below the light toward
+ * the camera, `len` long and `w` wide.
+ */
+function wetStreak(mb, cam, x, z, len, w) {
+  let dx = cam.x - x;
+  let dz = cam.z - z;
+  const l = Math.hypot(dx, dz) || 1;
+  dx /= l;
+  dz /= l;
+  const L = Math.min(len, l * 0.8);
+  const px = -dz * w;
+  const pz = dx * w;
+  const ax = x - dx * 3;
+  const az = z - dz * 3;
+  const bx = x + dx * L;
+  const bz = z + dz * L;
+  mb.quad(ax - px, 0.35, az - pz, bx - px, 0.35, bz - pz, bx + px, 0.35, bz + pz, ax + px, 0.35, az + pz, 0, 0, 1, 1);
 }
 
 /** A cone (open both ends) from apex point a (radius ra) to base point b (radius rb). */
@@ -97,11 +119,104 @@ function rgbHex(h) {
 }
 
 /**
+ * A street-race gate (solid, lit geometry): two pylons edged in neon either side of the road, a
+ * truss across the top with neon tubes and a banner (START / CHECKPOINT n / FINISH) facing the
+ * drivers on their way in. The next gate burns brighter than the one after it.
+ */
+export function appendRaceGate(mb, m, atlas) {
+  const S = m.span;
+  const k = m.kind === 'checkpoint' ? 235 : 120;
+  const edge = m.finish ? [1, 1, 1] : [1, 0.3, 0.86];
+  const tube = m.finish ? [1, 0.82, 0.3] : [0.3, 0.92, 1];
+  mb.xform(frame(m.x, 0, m.y, m.dir + Math.PI));
+  for (const z of [-S, S]) {
+    mb.color(0.07, 0.06, 0.09).mat(MAT.METAL);
+    mb.box(-3, 0, z - 3, 3, 52, z + 3);
+    mb.color(...edge).color2(edge[0] * 0.3, edge[1] * 0.3, edge[2] * 0.3).mat(MAT.EMIT, k, 0);
+    mb.box(3, 1, z - 2, 3.7, 50, z + 2, '');
+    mb.box(-3.7, 1, z - 2, -3, 50, z + 2, '');
+    mb.color(0.12, 0.1, 0.14).mat(MAT.METAL);
+    mb.box(-5, 0, z - 5, 5, 3, z + 5);
+  }
+  mb.color(0.07, 0.06, 0.09).mat(MAT.METAL);
+  mb.box(-2.5, 50, -S - 3, 2.5, 64, S + 3);
+  mb.color(...tube).color2(tube[0] * 0.3, tube[1] * 0.3, tube[2] * 0.3).mat(MAT.EMIT, k, 0);
+  mb.box(2.5, 49, -S - 3, 3.3, 50.6, S + 3, '');
+  mb.box(2.5, 63.4, -S - 3, 3.3, 65, S + 3, '');
+  if (m.finish) {
+    // A checker band under the banner.
+    for (let i = 0; i < 16; i += 1) {
+      const z0 = -S + (i * 2 * S) / 16;
+      mb.color(i % 2 ? 0.05 : 1, i % 2 ? 0.05 : 1, i % 2 ? 0.06 : 1).color2(0.2, 0.2, 0.2).mat(MAT.EMIT, i % 2 ? 0 : 120, 0);
+      mb.box(2.6, 50.6, z0, 3, 52.4, z0 + (2 * S) / 16, '');
+    }
+  }
+  const e = atlas.ctx ? atlasEntry(atlas, m.gateText) : atlas.entries.get(m.gateText);
+  if (e) {
+    const bh = 10;
+    const tw = Math.min(2 * S - 12, bh * e.aspect);
+    mb.color(...edge).mat(MAT.SIGN, 0);
+    mb.quad(2.7, 62.5, tw / 2, 2.7, 62.5, -tw / 2, 2.7, 52.5, -tw / 2, 2.7, 52.5, tw / 2, e.u0, e.v0, e.u1, e.v1);
+  }
+  mb.xform(null);
+}
+
+/**
+ * Additive light for a race gate: a glowing line across the road, flares at its feet, a halo,
+ * and on a wet evening the pylons' reflections.
+ */
+function gateGlow(mb, cam, m, t, wet) {
+  const ca = Math.cos(m.dir);
+  const sa = Math.sin(m.dir);
+  const rx = -sa;
+  const rz = ca;
+  const S = m.span;
+  const main = m.kind === 'checkpoint';
+  const [r, g, b] = m.finish ? [1, 0.9, 0.7] : [1, 0.3, 0.86];
+  // The line on the asphalt, three units deep.
+  mb.color(r, g, b, main ? 0.95 : 0.5);
+  setFx(mb, SH.SOFT, main ? 5 : 2.5, true);
+  const lx = ca * 4;
+  const lz = sa * 4;
+  mb.quad(m.x - rx * S - lx, 0.4, m.y - rz * S - lz, m.x + rx * S - lx, 0.4, m.y + rz * S - lz, m.x + rx * S + lx, 0.4, m.y + rz * S + lz, m.x - rx * S + lx, 0.4, m.y - rz * S + lz, 0, 0, 1, 1);
+  // A wide pool of light around it on the wet road.
+  mb.color(r, g, b, main ? 0.45 : 0.22);
+  setFx(mb, SH.SOFT, 1.1, true);
+  mb.quad(m.x - rx * (S + 20) - ca * 40, 0.3, m.y - rz * (S + 20) - sa * 40, m.x + rx * (S + 20) - ca * 40, 0.3, m.y + rz * (S + 20) - sa * 40, m.x + rx * (S + 20) + ca * 40, 0.3, m.y + rz * (S + 20) + sa * 40, m.x - rx * (S + 20) + ca * 40, 0.3, m.y - rz * (S + 20) + sa * 40, 0, 0, 1, 1);
+  // Road flares at the pylon feet, flickering red.
+  for (const s of [-1, 1]) {
+    for (const off of [-14, 0, 14]) {
+      const fl = 0.75 + 0.25 * Math.sin(t * 27 + off + s * 3);
+      const fx = m.x + rx * s * (S - 7) - ca * off;
+      const fz = m.y + rz * s * (S - 7) - sa * off;
+      mb.color(1, 0.28, 0.12, 1);
+      setFx(mb, SH.SOFT, 7, true);
+      sprite(mb, cam, fx, 2.2, fz, 2.6 * fl);
+      mb.color(1, 0.2, 0.1, 0.5);
+      setFx(mb, SH.SOFT, 1.4, true);
+      sprite(mb, cam, fx, 3, fz, 11 * fl);
+    }
+  }
+  // Halo around the banner.
+  mb.color(r, g, b, main ? 0.35 : 0.18);
+  setFx(mb, SH.SOFT, 1.2, true);
+  sprite(mb, cam, m.x, 57, m.y, S * 0.8);
+  // The neon pylons reflected in the wet road.
+  if (wet > 0.3) {
+    mb.color(r, g, b, (main ? 0.7 : 0.35) * wet);
+    setFx(mb, SH.SOFT, 2.4, true);
+    for (const s of [-1, 1]) wetStreak(mb, cam, m.x + rx * s * S, m.y + rz * s * S, 110, 5);
+    wetStreak(mb, cam, m.x, m.y, 90, S * 0.6);
+  }
+}
+
+/**
  * Fill `mb` with this frame's effects. `scene` = { game, cam, night, markers, heliPose, lamps }.
  * Alpha-blended puffs come first (far to near), additive light after.
  */
 export function buildEffects(mb, scene) {
   const { game, cam, night } = scene;
+  const wet = scene.wet ?? night;
   const t = game.t;
   const near = (x, z, r) => Math.abs(x - cam.x) < r && Math.abs(z - cam.z) < r;
   // Skid marks on the asphalt.
@@ -178,13 +293,15 @@ export function buildEffects(mb, scene) {
         setFx(mb, SH.SOFT, 6, true);
         sprite(mb, cam, p.x, 14, p.y, p.size * (0.7 + age) * 1.5);
       } else {
-        // Muzzle flash: a hot core, a wide soft bloom and a forward star of flame.
+        // Muzzle flash: a hot core, a wide soft bloom and a forward star of flame. Right by the
+        // lens (Dez's own gun on foot) the bloom is kept tight so it does not wash out the view.
+        const lensK = Math.min(1, Math.max(0.45, Math.hypot(p.x - cam.x, p.y - cam.z) / 90));
         mb.color(1, 0.8, 0.45, a);
-        setFx(mb, SH.SOFT, 6, true);
-        sprite(mb, cam, p.x, 13.6, p.y, p.size * 0.95);
-        mb.color(1, 0.62, 0.25, a * 0.6);
+        setFx(mb, SH.SOFT, 6 * lensK, true);
+        sprite(mb, cam, p.x, 13.6, p.y, p.size * 0.95 * lensK);
+        mb.color(1, 0.62, 0.25, a * 0.6 * lensK);
         setFx(mb, SH.SOFT, 1.8, true);
-        sprite(mb, cam, p.x, 13.6, p.y, p.size * 1.7);
+        sprite(mb, cam, p.x, 13.6, p.y, p.size * 1.7 * lensK);
         const ex = p.x + Math.cos(p.rot) * p.size * 2;
         const ez = p.y + Math.sin(p.rot) * p.size * 2;
         setFx(mb, SH.SOLID, 7, true);
@@ -194,7 +311,10 @@ export function buildEffects(mb, scene) {
     } else if (p.kind === P_TRACER) {
       mb.color(1, 0.82, 0.45, a * 0.85);
       setFx(mb, SH.SOLID, 3.5, true);
-      streak(mb, cam, p.x, 13.4, p.y, p.x2, 12, p.y2, 0.35);
+      streak(mb, cam, p.x, 13.4, p.y, p.x2, 12, p.y2, 0.55);
+      mb.color(1, 0.7, 0.35, a * 0.35);
+      setFx(mb, SH.SOLID, 1.5, true);
+      streak(mb, cam, p.x, 13.4, p.y, p.x2, 12, p.y2, 1.6);
     } else if (p.kind === P_RING) {
       mb.color(1, 0.8, 0.55, a * 0.8);
       setFx(mb, SH.RING, 3, true);
@@ -205,6 +325,10 @@ export function buildEffects(mb, scene) {
   for (const m of scene.markers) {
     const [r, g, b] = rgbHex(m.color);
     if (m.small) continue;
+    if (m.arch) {
+      gateGlow(mb, cam, m, t, wet);
+      continue;
+    }
     const rad = Math.max(16, (m.r || 30) * 0.42);
     const pulse = 0.85 + Math.sin(t * 4) * 0.15;
     mb.color(r, g, b, 0.75);
@@ -242,13 +366,17 @@ export function buildEffects(mb, scene) {
     const lx = hx + f[0] * 13 - ux * 8;
     const ly = hy + f[1] * 13 - uy * 8;
     const lz = hz + f[2] * 13 - uz * 8;
-    // The beam stays readable at dusk, and blazes at night.
+    // The beam stays readable in the golden hour (a bright core inside a wider haze), and
+    // blazes at night.
     const dusk = Math.max(night, game.light.neon ?? 0, 0.35);
-    mb.color(1, 0.97, 0.86, 0.45 + dusk * 0.45);
-    setFx(mb, SH.BEAM, 1.2 + dusk * 2, true);
+    mb.color(1, 0.97, 0.86, 0.55 + dusk * 0.4);
+    setFx(mb, SH.BEAM, 1.9 + dusk * 1.6, true);
     cone(mb, lx, ly, lz, h.lightX, 0, h.lightY, 1.5, 58, 18);
-    mb.color(1, 0.98, 0.9, 0.35 + dusk * 0.55);
-    setFx(mb, SH.SOFT, 0.5 + dusk * 2, true);
+    mb.color(1, 0.98, 0.92, 0.5 + dusk * 0.3);
+    setFx(mb, SH.BEAM, 1.6 + dusk * 1.2, true);
+    cone(mb, lx, ly, lz, h.lightX, 0, h.lightY, 1, 24, 12);
+    mb.color(1, 0.98, 0.9, 0.5 + dusk * 0.45);
+    setFx(mb, SH.SOFT, 1.1 + dusk * 1.6, true);
     groundQuad(mb, h.lightX, 0.7, h.lightY, 70);
     mb.color(1, 1, 0.95, 1);
     setFx(mb, SH.SOFT, 10, true);
@@ -267,12 +395,28 @@ export function buildEffects(mb, scene) {
       const side = phase ? -1 : 1;
       const x = v.x - sa * side * 3.5;
       const z = v.y + ca * side * 3.5;
+      // The wide halo shrinks right by the lens so a cruiser on your bumper does not fog the view.
+      const lensK = Math.min(1, Math.max(0.4, Math.hypot(x - cam.x, z - cam.z) / 140));
       mb.color(phase ? 1 : 0.2, phase ? 0.15 : 0.4, phase ? 0.2 : 1, 1);
       setFx(mb, SH.SOFT, 9, true);
       sprite(mb, cam, x, 16, z, 6.5);
-      mb.color(phase ? 1 : 0.2, phase ? 0.1 : 0.35, phase ? 0.15 : 1, 0.55);
+      mb.color(phase ? 1 : 0.2, phase ? 0.1 : 0.35, phase ? 0.15 : 1, 0.55 * lensK);
       setFx(mb, SH.SOFT, 1.6, true);
-      sprite(mb, cam, x, 16, z, 15);
+      sprite(mb, cam, x, 16, z, 15 * lensK);
+      if (wet > 0.3) {
+        mb.color(phase ? 1 : 0.2, phase ? 0.1 : 0.35, phase ? 0.15 : 1, 0.5 * wet);
+        setFx(mb, SH.SOFT, 2, true);
+        wetStreak(mb, cam, x, z, 60, 4);
+      }
+    }
+    if (lightsOn && night > 0.25 && wet > 0.3 && near(v.x, v.y, 700)) {
+      // Tail lights and headlights reflected in the wet street.
+      mb.color(1, 0.1, 0.12, 0.55 * wet);
+      setFx(mb, SH.SOFT, v.braking ? 3 : 2, true);
+      for (const s of [-1, 1]) wetStreak(mb, cam, v.x - ca * (L / 2 + 1) - sa * s * (hw - 3.6), v.y - sa * (L / 2 + 1) + ca * s * (hw - 3.6), 34, 2.6);
+      mb.color(1, 0.92, 0.75, 0.4 * wet);
+      setFx(mb, SH.SOFT, 2, true);
+      for (const s of [-1, 1]) wetStreak(mb, cam, v.x + ca * (L / 2 + 1) - sa * s * (hw - 3.6), v.y + sa * (L / 2 + 1) + ca * s * (hw - 3.6), 40, 3);
     }
     if (lightsOn && night > 0.25) {
       for (const s of [-1, 1]) {
@@ -308,6 +452,11 @@ export function buildEffects(mb, scene) {
       mb.color(1, 0.8, 0.55, night);
       setFx(mb, SH.SOFT, 3.5, true);
       sprite(mb, cam, l.x, l.y + 1, l.z, 7);
+      if (wet > 0.3 && near(l.x, l.z, 800)) {
+        mb.color(1, 0.75, 0.45, 0.35 * wet);
+        setFx(mb, SH.SOFT, 1.6, true);
+        wetStreak(mb, cam, l.x, l.z, 70, 5);
+      }
     }
   }
 }

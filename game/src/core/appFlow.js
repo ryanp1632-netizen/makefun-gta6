@@ -1,6 +1,7 @@
 // The screens and what moves between them: title (over a cinematic 3D orbit of the city), play,
-// pause, settings, controls, the city map, shop / safehouse / garage / property menus, the JOB
-// COMPLETE results and the hospital / precinct respawn. Each frame it reads input for the active
+// the tabbed pause screen (MAP / STATS / STORY / SETTINGS; M opens it on the map), controls,
+// shop / safehouse / garage / property menus, the JOB COMPLETE results and the hospital /
+// precinct respawn. Each frame it reads input for the active
 // screen, steps the simulation when it should run, plays the sounds, draws the world with the 3D
 // renderer (or the classic top-down one, toggled with V) and the HUD and menus over it.
 // Imports run from the game's systems to its presentation: saves and the story, the radio,
@@ -14,13 +15,13 @@ import { createGame, stepGame, STEP, CITY_SEED } from './game.js';
 import { createRenderer3d, render3d, aimAt3d, cameraYaw, project3d, drawWorldLabels } from '../render3d/renderer3d.js';
 import { titleOrbit, TITLE_SKY } from '../render3d/chaseCamera.js';
 import { drawCrosshair, drawHud } from '../hud/hud.js';
-import { drawCityMap } from '../hud/cityMap.js';
+import { drawPauseScreen, PAUSE_TABS } from '../ui/pauseScreen.js';
 import { createAudio, currentStation, playEvents, setVolumes, switchStation, uiBlip, unlockAudio, updateLoops } from '../audio/audioEngine.js';
 import { createInput, readControls } from './input.js';
 import { createRenderer, renderWorld } from '../render/renderer.js';
 import { snapCamera, worldToScreen } from '../render/camera.js';
 import { drawTitle, TITLE_ITEMS } from '../ui/titleScreen.js';
-import { PAUSE_ITEMS, drawControls, drawListMenu, drawPause, drawSettings, shopRows } from '../ui/menus.js';
+import { drawControls, drawListMenu, drawSettings, shopRows } from '../ui/menus.js';
 import { drawDown, drawFailed, drawResults } from '../ui/resultsScreen.js';
 import { loadSettings, SETTING_ROWS, storeSettings } from '../save/settings.js';
 import { skipLine } from '../missions/dialogue.js';
@@ -111,7 +112,7 @@ export function createApp(canvas, canvas3d = null) {
     canvas, canvas3d, r3, view: r3 && settings.view !== 'classic' ? '3d' : 'classic',
     renderer: createRenderer(canvas), input: createInput(canvas), audio: createAudio(), settings,
     screen: 'title', sel: save ? 0 : 1, prev: 'title', game: demoGame(CITY_SEED), save, acc: 0, t: 0, screenT: 0,
-    menu: null, stationT: 0, bill: 0,
+    menu: null, stationT: 0, bill: 0, tab: 0, setSel: 0,
   };
   applyView(app);
   const unlock = () => {
@@ -272,7 +273,8 @@ function updatePlay(app, dt) {
     return;
   }
   if (inp.take('KeyM')) {
-    go(app, 'map');
+    app.tab = PAUSE_TABS.indexOf('MAP');
+    go(app, 'pause');
     return;
   }
   if (inp.take('Enter')) skipLine(game);
@@ -348,38 +350,11 @@ export function frameApp(app, dt) {
     case 'play':
       updatePlay(app, dt);
       break;
-    case 'pause': {
-      if (back(app) || inp.take('KeyP')) go(app, 'play');
-      else if (navigate(app, PAUSE_ITEMS.length)) {
-        const item = PAUSE_ITEMS[app.sel];
-        uiBlip(app.audio, 'ok');
-        if (item === 'Resume') go(app, 'play');
-        else if (item === 'City Map') go(app, 'map');
-        else if (item === 'Settings') {
-          go(app, 'settings');
-          app.setSel = 0;
-        } else if (item === 'Controls') go(app, 'controls');
-        else if (item === 'Abandon Job' && game.missions.active) {
-          abandonMission(game);
-          go(app, 'play');
-        } else if (item === 'Quit to Title') {
-          setGame(app, demoGame(CITY_SEED));
-          app.save = readSave();
-          go(app, 'title');
-          app.sel = app.save ? 0 : 1;
-        }
-      }
-      break;
-    }
-    case 'settings':
-      if (back(app)) go(app, 'pause');
-      else adjustSettings(app);
+    case 'pause':
+      updatePause(app);
       break;
     case 'controls':
       if (back(app) || inp.take('Enter')) go(app, 'pause');
-      break;
-    case 'map':
-      if (back(app) || inp.take('KeyM')) go(app, app.prev === 'pause' ? 'pause' : 'play');
       break;
     case 'menu':
       handleMenu(app);
@@ -444,8 +419,8 @@ export function frameApp(app, dt) {
     inp.flush();
     return;
   }
-  if (app.screen === 'map') {
-    drawCityMap(ctx, game, w, h, use3d);
+  if (app.screen === 'pause') {
+    drawPauseScreen(ctx, game, w, h, { tab: app.tab, setSel: app.setSel, settings: app.settings });
     inp.flush();
     return;
   }
@@ -459,9 +434,7 @@ export function frameApp(app, dt) {
     if (use3d) sp = c.aimLocked ? project3d(app.r3, c.aimX, c.aimY, 12) : { x: inp.mouse.x, y: inp.mouse.y };
     drawCrosshair(ctx, sp.x, sp.y, (WEAPONS[pl.weapon].spread * 60) + pl.speed / 30, pl.reloadT > 0, use3d && c.aimLocked);
   }
-  if (app.screen === 'pause') drawPause(ctx, w, h, app.sel, game);
-  else if (app.screen === 'settings') drawSettings(ctx, w, h, app.setSel ?? 0, app.settings);
-  else if (app.screen === 'controls') drawControls(ctx, w, h);
+  if (app.screen === 'controls') drawControls(ctx, w, h);
   else if (app.screen === 'results') drawResults(ctx, w, h, game, app.screenT);
   else if (app.screen === 'down') drawDown(ctx, w, h, game.downCause, app.bill, app.screenT);
   else if (app.screen === 'menu') {
@@ -470,6 +443,56 @@ export function frameApp(app, dt) {
     drawListMenu(ctx, w, h, menuTitle(app.menu.kind), rows, app.sel, app.menu.msg || 'Enter to choose  ·  Esc to leave', app.menu.kind === 'shop' ? '#ff6a4f' : '#5ad8ff', `Cash ${formatCash(game.economy.cash)}`);
   }
   if (app.screen !== 'play') inp.flush();
+}
+
+/**
+ * The pause screen's keys: Q / E, Tab or 1-4 switch tabs (left / right too, except on SETTINGS
+ * where they adjust the selected row); Esc, P, Enter (or M on the map) resume; C shows the
+ * controls, J abandons the running job, X quits to the title.
+ */
+function updatePause(app) {
+  const inp = app.input;
+  const game = app.game;
+  const n = PAUSE_TABS.length;
+  const onSettings = PAUSE_TABS[app.tab] === 'SETTINGS';
+  let d = 0;
+  if (inp.take('KeyE') || inp.take('Tab') || (!onSettings && (inp.take('ArrowRight') || inp.take('KeyD')))) d = 1;
+  if (inp.take('KeyQ') || (!onSettings && (inp.take('ArrowLeft') || inp.take('KeyA')))) d = -1;
+  for (let i = 0; i < n; i += 1) {
+    if (inp.take(`Digit${i + 1}`)) {
+      app.tab = i;
+      uiBlip(app.audio);
+    }
+  }
+  if (d) {
+    app.tab = (app.tab + d + n) % n;
+    app.setSel = 0;
+    uiBlip(app.audio);
+    return;
+  }
+  if (back(app) || inp.take('KeyP') || (PAUSE_TABS[app.tab] === 'MAP' && inp.take('KeyM')) || (!onSettings && inp.take('Enter'))) {
+    go(app, 'play');
+    return;
+  }
+  if (inp.take('KeyC')) {
+    go(app, 'controls');
+    return;
+  }
+  if (inp.take('KeyJ') && game.missions.active) {
+    uiBlip(app.audio, 'ok');
+    abandonMission(game);
+    go(app, 'play');
+    return;
+  }
+  if (inp.take('KeyX')) {
+    uiBlip(app.audio, 'ok');
+    setGame(app, demoGame(CITY_SEED));
+    app.save = readSave();
+    go(app, 'title');
+    app.sel = app.save ? 0 : 1;
+    return;
+  }
+  if (onSettings) adjustSettings(app);
 }
 
 function adjustSettings(app) {

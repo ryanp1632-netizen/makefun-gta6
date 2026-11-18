@@ -28,6 +28,14 @@ export function emptyControls() {
   return { moveX: 0, moveY: 0, aimX: 0, aimY: 0, fire: false, firePressed: false, sprint: false, enter: false, interact: false, handbrake: false, reload: false, weaponNext: 0, weaponSlot: 0, radio: 0 };
 }
 
+/**
+ * Lifetime statistics (saved with the game, shown on the pause screen's STATS tab): shooting,
+ * driving (distance in world units on foot and behind the wheel), races, taxi fares and escapes.
+ */
+export function createStats() {
+  return { shots: 0, hits: 0, kills: 0, crashes: 0, topSpeed: 0, distance: 0, driven: 0, racesRun: 0, racesWon: 0, fares: 0, copsEscaped: 0, maxWanted: 0, jobsFailed: 0 };
+}
+
 /** A fresh game in the city of `seed`, the player outside the safehouse at golden hour. */
 export function createGame(seed = CITY_SEED, opts = {}) {
   resetVehicleIds();
@@ -40,7 +48,7 @@ export function createGame(seed = CITY_SEED, opts = {}) {
     vehicles: [], peds: [], fx: createParticles(), events: [], frameEvents: [], wanted: createWanted(), heli: null,
     camera: createCamera(), controls: emptyControls(), economy: createEconomy(), dialogue: createDialogue(),
     missions: createMissionState(), activity: null, notices: [], district: null, districtT: 99, noCrimeT: 0,
-    settings: opts.settings ?? { shake: 1 }, stats: { shots: 0, hits: 0, kills: 0, crashes: 0, topSpeed: 0, distance: 0 }, populateT: 0,
+    settings: opts.settings ?? { shake: 1 }, stats: createStats(), populateT: 0,
   };
   game.light = lightingAt(game.clock.hours);
   if (game.ground) game.paintSkid = (x0, y0, x1, y1, alpha, width) => paintSkid(game.ground, x0, y0, x1, y1, alpha, width);
@@ -149,7 +157,14 @@ function handleEvent(game, e) {
       }
       break;
     case 'evaded':
+      game.stats.copsEscaped += 1;
       notify(game, "YOU SHOOK THEM  the heat is off", '#7dff9a', true);
+      break;
+    case 'wantedUp':
+      game.stats.maxWanted = Math.max(game.stats.maxWanted, e.level);
+      break;
+    case 'missionFailed':
+      game.stats.jobsFailed += 1;
       break;
     case 'playerDown':
       if (!pl.dead) {
@@ -197,6 +212,7 @@ export function stepGame(game, dt) {
       p.deadT += dt;
       continue;
     }
+    if (p.hurtT > 0) p.hurtT = Math.max(0, p.hurtT - dt);
     if (p.hostile && p.weapon) updateCombatant(game, p, dt);
     else if (p.drive) p.drive(game, p, dt);
     else updateCivilian(game, p, dt);
@@ -232,6 +248,7 @@ export function stepGame(game, dt) {
   const sp = vehicleSpeed(focus.spec ? focus : { vx: game.player.vx, vy: game.player.vy });
   game.stats.topSpeed = Math.max(game.stats.topSpeed, focus.spec ? sp : 0);
   game.stats.distance += sp * dt;
+  if (focus.spec && !game.demo) game.stats.driven += sp * dt;
   for (const n of game.notices) n.t += dt;
   while (game.notices.length && game.notices[0].t > 5) game.notices.shift();
   const c = game.controls;

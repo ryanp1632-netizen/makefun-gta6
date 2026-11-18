@@ -1,5 +1,6 @@
-// One save slot in localStorage: story progress, cash, respect, garage, properties, tapes,
-// weapons and ammo, the clock and lifetime stats. Written at the safehouse and after every job;
+// One save slot in localStorage: story progress, cash, respect, garage, properties, tapes, street
+// races won, weapons and ammo, the clock and lifetime stats (distance driven, races, fares,
+// escapes...). Written at the safehouse and after every job;
 // read by Continue on the title screen, which also shows the slot's summary.
 import { MISSIONS } from '../missions/storyMissions.js';
 import { formatCash, formatClock } from '../core/math.js';
@@ -11,7 +12,7 @@ export function snapshot(game) {
   const pl = game.player;
   return {
     v: 1, completed: [...game.missions.completed], cash: Math.round(game.economy.cash), xp: game.economy.xp,
-    garage: [...game.economy.garage], properties: { ...game.economy.properties }, tapes: [...game.economy.tapes],
+    garage: [...game.economy.garage], properties: { ...game.economy.properties }, tapes: [...game.economy.tapes], races: [...game.economy.races],
     owned: { ...pl.owned }, reserve: Object.fromEntries(Object.entries(pl.ammo).map(([k, a]) => [k, a.mag + a.reserve])),
     armor: Math.round(pl.armor), clock: { hours: game.clock.hours, day: game.clock.day }, stats: { ...game.stats }, playtime: (game.playtime ?? 0) + game.t,
   };
@@ -45,6 +46,7 @@ export function applySave(game, s) {
   game.economy.garage = [...s.garage];
   game.economy.properties = { ...s.properties };
   game.economy.tapes = [...s.tapes];
+  game.economy.races = [...(s.races ?? [])];
   const pl = game.player;
   pl.owned = { ...pl.owned, ...s.owned };
   for (const [k, total] of Object.entries(s.reserve)) if (pl.ammo[k]) {

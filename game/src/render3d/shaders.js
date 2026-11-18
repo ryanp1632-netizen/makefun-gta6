@@ -373,16 +373,20 @@ void main() {
   float sh = shadowAt(v_pos, n);
   float lum = dot(t.rgb, vec3(0.3, 0.55, 0.15));
   float wet = (1.0 - smoothstep(0.2, 0.55, lum)) * (0.15 + u_wet * 0.85);
+  // After dusk the asphalt holds puddles: darker patches that mirror the sky and the lights.
+  float pn = vnoise(v_pos.xz * 0.032) * 0.65 + vnoise(v_pos.xz * 0.12) * 0.35;
+  float puddle = smoothstep(0.5, 0.68, pn) * wet * smoothstep(0.35, 0.8, u_wet);
+  base *= 1.0 - 0.5 * puddle;
   vec3 ld = vec3(0.0);
   vec3 ls = vec3(0.0);
-  addLights(v_pos, n, V, 30.0 + wet * 110.0, wet * (1.2 + u_wet * 2.2), ld, ls);
+  addLights(v_pos, n, V, 30.0 + wet * 110.0 + puddle * 260.0, wet * (1.2 + u_wet * 2.2) + puddle * 5.0, ld, ls);
   float ndl = max(u_sunDir.y, 0.0);
   vec3 col = base * (u_ambSky * 0.95 + u_sunCol * ndl * sh + ld) + ls;
   vec3 H = normalize(u_sunDir + V);
   col += u_sunCol * pow(max(dot(n, H), 0.0), 50.0) * wet * 0.5 * sh;
-  // Wet asphalt mirrors a little of the sky at night.
+  // Wet asphalt mirrors a little of the sky at night, the puddles a lot of it.
   vec3 R = reflect(-V, n);
-  col += skyBase(R) * wet * 0.12 * pow(1.0 - V.y, 3.0);
+  col += skyBase(R) * (wet * 0.12 + puddle * 0.75) * pow(1.0 - V.y, 2.0);
   o = vec4(applyFog(col, v_pos), t.a);
 }
 `;
